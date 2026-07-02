@@ -35,8 +35,9 @@ client.once(Events.ClientReady, readyClient => {
   });
   console.log(`${"-".repeat(10)}\n Invite link for the bot :\n${inviteLink} \n${"-".repeat(10)}`);
 
-  // Register commands to all currently joined guilds for instant updates
-  for (const guild of readyClient.guilds.cache.values()) {
+  
+  // DisbotClient.deployCmds(cmdMap); // Register commands globally (may take up to 1 hour to reflect)
+  for (const guild of readyClient.guilds.cache.values()) { // Register commands instantly to all joined guilds instantly
     DisbotClient.deployCmdsForGuild(cmdMap, guild.id);
   }
 });
