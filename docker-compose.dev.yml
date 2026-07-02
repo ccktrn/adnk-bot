@@ -1,0 +1,6 @@
+# ovverride for development environment
+services:
+  adnk-bot:
+    command: bun run dev
+    volumes:
+      - ./src:/app/src

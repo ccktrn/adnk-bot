@@ -1,0 +1,40 @@
+{
+  "name": "disbot-ktrn",
+  "version": "1.0.0",
+  "description": "A Discord bot for managing Minecraft server commands",
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "setup": "sh scripts/setup.sh",
+    "start": "bun src/index.ts",
+    "get-token": "bun scripts/get-pcloud-token.ts"
+  },
+  "dependencies": {
+    "@discordjs/builders": "^1.11.2",
+    "@discordjs/rest": "^2.5.1",
+    "@discordjs/voice": "^0.19.2",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "axios": "^1.13.2",
+    "discord-api-types": "^0.38.16",
+    "discord.js": "^14.21.0",
+    "dotenv": "^17.2.0",
+    "duck-duck-scrape": "^2.2.7",
+    "ffmpeg-static": "^5.3.0",
+    "form-data": "^4.0.5",
+    "googlethis": "^1.8.0",
+    "libsodium-wrappers": "^0.8.4",
+    "openai": "^6.45.0",
+    "opusscript": "^0.1.1",
+    "pcloud-sdk-js": "^2.0.0",
+    "tweetnacl": "^1.0.3",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "eslint": "^9.31.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.37.0"
+  },
+  "module": "src/index.ts",
+  "private": true
+}
