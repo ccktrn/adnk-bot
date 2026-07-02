@@ -11,7 +11,7 @@ dotenv.config();
 // Create a new Discord client instance
 const client = DisbotClient.createClient();
 
-const cmdMap = await createCmdMap(); // Create the command map from the cmds directory
+const cmdMap = createCmdMap(); // Create the command map from the cmds directory
 
 // clientReady
 client.once(Events.ClientReady, readyClient => {
@@ -35,8 +35,12 @@ client.once(Events.ClientReady, readyClient => {
   });
   console.log(`${"-".repeat(10)}\n Invite link for the bot :\n${inviteLink} \n${"-".repeat(10)}`);
 
-  
-  // DisbotClient.deployCmds(cmdMap); // Register commands globally (may take up to 1 hour to reflect)
+  // const devGuildId = process.env.DISCORD_DEV_GUILD_ID 
+  // if (devGuildId){ 
+  //   DisbotClient.deployCmdsForGuild(cmdMap, devGuildId) // if dev-guild is set, deploy commands instantly to only that guild
+  // } else {
+  //   DisbotClient.deployCmds(cmdMap)// Register commands globally (may take up to 1 hour to reflect)
+  // }
   for (const guild of readyClient.guilds.cache.values()) { // Register commands instantly to all joined guilds instantly
     DisbotClient.deployCmdsForGuild(cmdMap, guild.id);
   }
