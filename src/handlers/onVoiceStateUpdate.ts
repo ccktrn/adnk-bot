@@ -1,8 +1,8 @@
 import { VoiceState } from 'discord.js';
 import { joinVoiceChannel, VoiceConnectionStatus, getVoiceConnection } from '@discordjs/voice';
 import { ConfigRepository } from '../repositories/config-repository';
-import { join } from 'path';
-import { existsSync } from 'fs';
+
+const DELAY_SOUNDBOARD = 500; // Delay in milliseconds before sending the soundboard sound after joining the VC
 
 const repo = new ConfigRepository();
 
@@ -114,12 +114,18 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
         console.log(`[Voice] Connecting to VC...`);
         connection.once(VoiceConnectionStatus.Ready, () => {
           console.log(`[Voice] Connection Ready!`);
-          playSound();
+          // wait for a short delay to ensure the connection is stable before sending the sound
+          setTimeout(() => {
+            playSound();
+          }, DELAY_SOUNDBOARD);
         });
         
       } else {
         // 既にVCにいる場合はそのまま鳴らす
-        playSound();
+        // wait for a short delay to ensure the connection is stable before sending the sound
+        setTimeout(() => {
+          playSound();
+        }, DELAY_SOUNDBOARD);
       }
 
     } catch (error) {
