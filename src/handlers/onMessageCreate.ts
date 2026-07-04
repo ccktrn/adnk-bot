@@ -67,9 +67,11 @@ export async function handleMessageCreate(message: Message) {
         content = "（画像または無言のメッセージ）";
       }
 
+      const displayName = msg.member?.displayName || msg.author.displayName || msg.author.username;
+
       messages.push({
         role,
-        content: role === 'user' ? `${msg.author.username}: ${content}` : content, // ユーザー名も文脈として付与
+        content: role === 'user' ? `${displayName}: ${content}` : content, // ユーザー名（表示名）も文脈として付与
       });
     }
 
