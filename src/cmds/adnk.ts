@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChannelType, GuildMember } from 'discord.js';
+import { SlashCommandBuilder, ChannelType, GuildMember, MessageFlags } from 'discord.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { SlashCmd } from '../type';
@@ -35,8 +35,16 @@ const adnkCmd: SlashCmd = {
     const guildId = interaction.guildId;
     
     if (!guildId) {
-      await interaction.reply({ content: 'このコマンドはサーバー内でのみ使用できます。', ephemeral: true });
+      await interaction.reply({ content: 'このコマンドはサーバー内でのみ使用できます。', flags: [MessageFlags.Ephemeral] });
       return;
+    }
+
+    const channel = interaction.channel;
+    if (subCmd === 'set-vc') {
+      if (!channel || !channel.isVoiceBased()) {
+        await interaction.reply({ content: '❌ このコマンドはボイスチャンネルの専用テキストチャット内で実行してください。', flags: [MessageFlags.Ephemeral] });
+        return;
+      }
     }
 
     if (subCmd === 'set-soundboard') {
@@ -58,27 +66,17 @@ const adnkCmd: SlashCmd = {
       await interaction.reply({ content: `✅ サウンドボードの設定を解除しました。` });
     }
     else if (subCmd === 'set-vc') {
-      const channel = interaction.channel;
-      
-      if (!channel || !channel.isVoiceBased()) {
-        await interaction.reply({ content: '❌ このコマンドはボイスチャンネルの専用テキストチャット内で実行してください。', ephemeral: true });
-        return;
-      }
-      
-      const vc = channel;
+      const vc = channel!;
       const guild = interaction.guild;
       let warningMsg = '';
       if (guild) {
         const botMember = guild.members.me || await guild.members.fetch(interaction.client.user.id);
-        const channel = await guild.channels.fetch(vc.id).catch(() => null);
-        if (channel && channel.isVoiceBased()) {
-          const permissions = channel.permissionsFor(botMember);
+        const channelObj = await guild.channels.fetch(vc.id).catch(() => null);
+        if (channelObj && channelObj.isVoiceBased()) {
+          const permissions = channelObj.permissionsFor(botMember);
           if (!permissions?.has('Connect')) {
-            await interaction.reply({ content: `❌ 失敗: Botに <#${vc.id}> への「接続」権限がありません。\nチャンネルまたはサーバーの権限設定を見直してください。`, ephemeral: true });
+            await interaction.reply({ content: `❌ 失敗: Botに <#${vc.id}> への「接続」権限がありません。\nチャンネルまたはサーバーの権限設定を見直してください。`, flags: [MessageFlags.Ephemeral] });
             return;
-          }
-          if (!permissions?.has('Speak')) {
-            warningMsg += `\n⚠️ **警告:** Botに「発言」権限がありません！設定を見直さないと音は鳴りません。`;
           }
           if (!permissions?.has('UseSoundboard')) {
             warningMsg += `\n⚠️ **警告:** Botに「サウンドボードを使用」権限がありません！`;
@@ -87,7 +85,7 @@ const adnkCmd: SlashCmd = {
       }
       
       repo.setVcId(guildId, vc.id);
-      await interaction.reply({ content: `✅ ボイスチャンネル <#${vc.id}> を登録しました。${warningMsg}` });
+      await interaction.reply({ content: `✅ ボイスチャンネル <#${vc.id}> を自動参加対象に登録しました。${warningMsg}` });
     }
     else if (subCmd === 'unset-vc') {
       repo.setVcId(guildId, null);

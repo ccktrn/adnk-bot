@@ -49,6 +49,8 @@ class DisbotClient {
         intents: [          
           "Guilds",
           "GuildVoiceStates",
+          "GuildMessages",
+          "MessageContent"
         ],
         partials: [
           Partials.Message,

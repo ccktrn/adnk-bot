@@ -2,6 +2,7 @@ import { Events, OAuth2Scopes } from "discord.js";
 import * as dotenv from "dotenv";
 import { generateDependencyReport } from '@discordjs/voice';
 import { handleVoiceStateUpdate } from "./handlers/onVoiceStateUpdate";
+import { handleMessageCreate } from "./handlers/onMessageCreate";
 import createCmdMap from "./lib/create-cmd-map";
 import DisbotClient from "./wrapper/disbot-client";
 
@@ -61,6 +62,11 @@ client.on(Events.GuildCreate, async guild => {
 // Listen for voice state updates
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   await handleVoiceStateUpdate(oldState, newState);
+});
+
+// Listen for new messages (LLM integration)
+client.on(Events.MessageCreate, async message => {
+  await handleMessageCreate(message);
 });
 
 // Listen for interactions e.g. slash commands
