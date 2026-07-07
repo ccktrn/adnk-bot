@@ -71,7 +71,7 @@ export async function handleMessageCreate(message: Message) {
 
       messages.push({
         role,
-        content: role === 'user' ? `${displayName}: ${content}` : content, // ユーザー名（表示名）も文脈として付与
+        content: role === 'user' ? `"${displayName}": ${content}` : content, // ユーザー名（表示名）も文脈として付与
       });
     }
 
