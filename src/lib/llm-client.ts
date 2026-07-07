@@ -40,6 +40,11 @@ export const generateLLMResponse = async (chatMessages: OpenAI.Chat.ChatCompleti
       model: response.model,
       created: response.created,
       seed,
+      usage: {
+        prompt_tokens: response.usage?.prompt_tokens,
+        completion_tokens: response.usage?.completion_tokens,
+        total_tokens: response.usage?.total_tokens,
+      }
     });
     
     const message = response.choices[0]?.message;
