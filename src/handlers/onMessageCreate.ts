@@ -123,9 +123,9 @@ export async function handleMessageCreate(message: Message) {
         // 画像が含まれている場合はマルチモーダルフォーマット（配列）にする
         const contentArray: any[] = [];
         if (textContent) {
-          contentArray.push({ type: "text", text: role === 'user' ? `${displayName}: ${textContent}` : textContent });
+          contentArray.push({ type: "text", text: role === 'user' ? `"${displayName}": ${textContent}` : textContent });
         } else if (role === 'user') {
-          contentArray.push({ type: "text", text: `${displayName} が画像を送信しました。` });
+          contentArray.push({ type: "text", text: `"${displayName}" が画像を送信しました。` });
         }
         
         // 全ての画像を配列に追加
@@ -141,7 +141,7 @@ export async function handleMessageCreate(message: Message) {
         }
         messages.push({
           role,
-          content: role === 'user' ? `${displayName}: ${textContent}` : textContent, // ユーザー名（表示名）も文脈として付与
+          content: role === 'user' ? `"${displayName}": ${textContent}` : textContent, // ユーザー名（表示名）も文脈として付与
         });
       }
     }
