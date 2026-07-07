@@ -28,11 +28,20 @@ export const generateLLMResponse = async (chatMessages: OpenAI.Chat.ChatCompleti
   let accumulatedContent = "";
 
   try {
+    const seed = Math.floor(Math.random() * 1000000);
     const response = await openai.chat.completions.create({
       model: modelName,
       messages: messages,
+      seed,
     });
 
+    console.log("LLM API response:", {
+      id: response.id,
+      model: response.model,
+      created: response.created,
+      seed,
+    });
+    
     const message = response.choices[0]?.message;
  
     return message?.content?.trim() ? message.content : "（返答を生成できませんでした）";

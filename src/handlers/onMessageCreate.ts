@@ -109,16 +109,18 @@ export async function handleMessageCreate(message: Message) {
         }
       }
 
-      // Webページの情報を取得してテキストに追記
+      // Webページの情報を取得して別のシステムメッセージとして準備
+      let systemWebContent = "";
       if (webUrls.length > 0) {
         const fetchPromises = webUrls.map(async (url) => {
           const content = await fetchReadablefromUrl(url);
-          return `\n[Webページの内容: ${url}]\n${content}\n`;
+          return `\n[ URL: ${url} ]\n${content}\n`;
         });
         const results = await Promise.all(fetchPromises);
-        textContent += "\n" + results.join("\n");
+        systemWebContent = "以下は、会話の中で提示されたWebページの内容です。参考にして返答してください。\n" + results.join("\n");
       }
 
+      // まず通常のメッセージ（テキストや画像）を messages に追加する
       if (imageUrls.length > 0) {
         // 画像が含まれている場合はマルチモーダルフォーマット（配列）にする
         const contentArray: any[] = [];
@@ -142,6 +144,14 @@ export async function handleMessageCreate(message: Message) {
         messages.push({
           role,
           content: role === 'user' ? `"${displayName}": ${textContent}` : textContent, // ユーザー名（表示名）も文脈として付与
+        });
+      }
+
+      // Webページのコンテンツがある場合は、直後にシステムメッセージとして独立して追加する
+      if (systemWebContent) {
+        messages.push({
+          role: 'system',
+          content: systemWebContent
         });
       }
     }
