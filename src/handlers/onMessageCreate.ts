@@ -2,6 +2,29 @@ import { Message } from 'discord.js';
 import OpenAI from 'openai';
 import { generateLLMResponse } from '../lib/llm-client';
 
+const urlRegex = /(https?:\/\/[^\s]+)/g;
+const timeoutforReadableFromUrl = 20 * 1000; // 20秒のタイムアウト
+
+async function fetchReadablefromUrl(url: string): Promise<string> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutforReadableFromUrl); // 8秒でタイムアウト
+    const res = await fetch('https://r.jina.ai/' + url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) {
+      console.error(`[JinaReader] URLの取得に失敗しました: ${url} | ステータス: ${res.status} ${res.statusText}`);
+      return "(Webページの取得に失敗しました)";
+    }
+    
+    const text = await res.text();
+    // トークン上限対策のため、最大2500文字程度でカットする
+    return text.length > 2500 ? text.slice(0, 2500) + '\n... (以降省略されました)' : text;
+  } catch (e: any) {
+    console.error(`[JinaReader] 例外エラーが発生しました: ${url}`, e?.message || e);
+    return "(Webページの取得タイムアウトまたはエラー)";
+  }
+}
 
 export async function handleMessageCreate(message: Message) {
   // Bot自身のメッセージや他のBotのメッセージは無視
@@ -59,20 +82,68 @@ export async function handleMessageCreate(message: Message) {
       const role = msg.author.id === client.user.id ? 'assistant' : 'user';
       
       // ユーザーのメッセージからBotへのメンション文字列（<@ID>）を削除して整形
-      let content = msg.content;
+      let textContent = msg.content;
       const mentionRegex = new RegExp(`<@!?${client.user.id}>`, 'g');
-      content = content.replace(mentionRegex, '').trim();
-
-      if (!content) {
-        content = "（画像または無言のメッセージ）";
-      }
+      textContent = textContent.replace(mentionRegex, '').trim();
 
       const displayName = msg.member?.displayName || msg.author.displayName || msg.author.username;
 
-      messages.push({
-        role,
-        content: role === 'user' ? `"${displayName}": ${content}` : content, // ユーザー名（表示名）も文脈として付与
+      // --- 画像添付ファイルの抽出 ---
+      const imageUrls: string[] = [];
+      msg.attachments.forEach(att => {
+        if (att.contentType?.startsWith('image/')) {
+          imageUrls.push(att.url);
+        }
       });
+
+      // --- テキスト内のURL抽出と処理 ---
+      const webUrls: string[] = [];
+      let match;
+      while ((match = urlRegex.exec(textContent)) !== null) {
+        const url = match[1];
+        // 簡易的な拡張子チェックで画像か判断 
+        if (url.match(/\.(png|jpg|jpeg|webp|gif)(\?.*)?$/i)) {
+          imageUrls.push(url);
+        } else {
+          webUrls.push(url);
+        }
+      }
+
+      // Webページの情報を取得してテキストに追記
+      if (webUrls.length > 0) {
+        const fetchPromises = webUrls.map(async (url) => {
+          const content = await fetchReadablefromUrl(url);
+          return `\n[Webページの内容: ${url}]\n${content}\n`;
+        });
+        const results = await Promise.all(fetchPromises);
+        textContent += "\n" + results.join("\n");
+      }
+
+      if (imageUrls.length > 0) {
+        // 画像が含まれている場合はマルチモーダルフォーマット（配列）にする
+        const contentArray: any[] = [];
+        if (textContent) {
+          contentArray.push({ type: "text", text: role === 'user' ? `${displayName}: ${textContent}` : textContent });
+        } else if (role === 'user') {
+          contentArray.push({ type: "text", text: `${displayName} が画像を送信しました。` });
+        }
+        
+        // 全ての画像を配列に追加
+        for (const url of imageUrls) {
+          contentArray.push({ type: "image_url", image_url: { url } });
+        }
+        
+        messages.push({ role, content: contentArray });
+      } else {
+        // テキストのみの場合
+        if (!textContent) {
+          textContent = "（無言のメッセージ）";
+        }
+        messages.push({
+          role,
+          content: role === 'user' ? `${displayName}: ${textContent}` : textContent, // ユーザー名（表示名）も文脈として付与
+        });
+      }
     }
 
     // LLMにリクエスト
@@ -81,9 +152,11 @@ export async function handleMessageCreate(message: Message) {
     if (replyContent) {
       // 長すぎる場合は分割などの処理が必要になる可能性があるが、一旦そのまま返す
       await message.reply(replyContent);
+    } else {
+      await message.reply("返答を生成できませんでした。");
     }
   } catch (error) {
     console.error('[LLM] OpenAI Error:', error);
-    await message.reply('申し訳ありません、APIリクエスト中にエラーが発生しました。設定やAPIキーを確認してください。');
+    await message.reply('APIリクエスト中にエラーが発生しました。設定やAPIキーを確認してください。');
   }
 }
