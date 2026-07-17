@@ -1,30 +1,9 @@
 import { Message } from 'discord.js';
-import OpenAI from 'openai';
 import { generateLLMResponse } from '../lib/llm-client';
+import { logger } from '../lib/logger';
+import { formatMessagesForLLM } from '../lib/llm-formatter';
 
-const urlRegex = /(https?:\/\/[^\s]+)/g;
-const timeoutforReadableFromUrl = 20 * 1000; // 20秒のタイムアウト
-
-async function fetchReadablefromUrl(url: string): Promise<string> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutforReadableFromUrl); // 8秒でタイムアウト
-    const res = await fetch('https://r.jina.ai/' + url, { signal: controller.signal });
-    clearTimeout(timeoutId);
-    
-    if (!res.ok) {
-      console.error(`[JinaReader] URLの取得に失敗しました: ${url} | ステータス: ${res.status} ${res.statusText}`);
-      return "(Webページの取得に失敗しました)";
-    }
-    
-    const text = await res.text();
-    // トークン上限対策のため、最大2500文字程度でカットする
-    return text.length > 2500 ? text.slice(0, 2500) + '\n... (以降省略されました)' : text;
-  } catch (e: any) {
-    console.error(`[JinaReader] 例外エラーが発生しました: ${url}`, e?.message || e);
-    return "(Webページの取得タイムアウトまたはエラー)";
-  }
-}
+const MAX_MESSAGE_LENGTH = 200; // 分割送信する際の1メッセージあたりの最大文字数
 
 export async function handleMessageCreate(message: Message) {
   // Bot自身のメッセージや他のBotのメッセージは無視
@@ -53,12 +32,12 @@ export async function handleMessageCreate(message: Message) {
   // 環境変数のチェック
   const apiKey = process.env.LLM_API_KEY;
   if (!apiKey) {
-    console.warn('[LLM] LLM_API_KEY is not set. Ignoring message.');
+    logger.warn('[LLM] LLM_API_KEY is not set. Ignoring message.');
     return;
   }
 
   try {
-    if ( "sendTyping" in message.channel && typeof message.channel.sendTyping === "function") {
+    if ("sendTyping" in message.channel && typeof message.channel.sendTyping === "function") {
       await message.channel.sendTyping();
     }
 
@@ -75,98 +54,30 @@ export async function handleMessageCreate(message: Message) {
       }
     }
 
-    // OpenAI用のメッセージフォーマットに変換
-    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
-
-    for (const msg of messageTree) {
-      const role = msg.author.id === client.user.id ? 'assistant' : 'user';
-      
-      // ユーザーのメッセージからBotへのメンション文字列（<@ID>）を削除して整形
-      let textContent = msg.content;
-      const mentionRegex = new RegExp(`<@!?${client.user.id}>`, 'g');
-      textContent = textContent.replace(mentionRegex, '').trim();
-
-      const displayName = msg.member?.displayName || msg.author.displayName || msg.author.username;
-
-      // --- 画像添付ファイルの抽出 ---
-      const imageUrls: string[] = [];
-      msg.attachments.forEach(att => {
-        if (att.contentType?.startsWith('image/')) {
-          imageUrls.push(att.url);
-        }
-      });
-
-      // --- テキスト内のURL抽出と処理 ---
-      const webUrls: string[] = [];
-      let match;
-      while ((match = urlRegex.exec(textContent)) !== null) {
-        const url = match[1];
-        // 簡易的な拡張子チェックで画像か判断 
-        if (url.match(/\.(png|jpg|jpeg|webp|gif)(\?.*)?$/i)) {
-          imageUrls.push(url);
-        } else {
-          webUrls.push(url);
-        }
-      }
-
-      // Webページの情報を取得して別のシステムメッセージとして準備
-      let systemWebContent = "";
-      if (webUrls.length > 0) {
-        const fetchPromises = webUrls.map(async (url) => {
-          const content = await fetchReadablefromUrl(url);
-          return `\n[ URL: ${url} ]\n${content}\n`;
-        });
-        const results = await Promise.all(fetchPromises);
-        systemWebContent = "以下は、会話の中で提示されたWebページの内容です。参考にして返答してください。\n" + results.join("\n");
-      }
-
-      // まず通常のメッセージ（テキストや画像）を messages に追加する
-      if (imageUrls.length > 0) {
-        // 画像が含まれている場合はマルチモーダルフォーマット（配列）にする
-        const contentArray: any[] = [];
-        if (textContent) {
-          contentArray.push({ type: "text", text: role === 'user' ? `"${displayName}": ${textContent}` : textContent });
-        } else if (role === 'user') {
-          contentArray.push({ type: "text", text: `"${displayName}" が画像を送信しました。` });
-        }
-        
-        // 全ての画像を配列に追加
-        for (const url of imageUrls) {
-          contentArray.push({ type: "image_url", image_url: { url } });
-        }
-        
-        messages.push({ role, content: contentArray });
-      } else {
-        // テキストのみの場合
-        if (!textContent) {
-          textContent = "（無言のメッセージ）";
-        }
-        messages.push({
-          role,
-          content: role === 'user' ? `"${displayName}": ${textContent}` : textContent, // ユーザー名（表示名）も文脈として付与
-        });
-      }
-
-      // Webページのコンテンツがある場合は、直後にシステムメッセージとして独立して追加する
-      if (systemWebContent) {
-        messages.push({
-          role: 'system',
-          content: systemWebContent
-        });
-      }
-    }
+    // フォーマット処理を外部モジュールに委譲
+    const messages = await formatMessagesForLLM(messageTree, client.user.id);
 
     // LLMにリクエスト
-    const replyContent = await generateLLMResponse(messages);
+    const replyContent = await generateLLMResponse(messages, message);
 
     if (replyContent) {
-      // 長すぎる場合は分割などの処理が必要になる可能性があるが、一旦そのまま返す
-      await message.reply(replyContent);
+      // 長すぎる場合は設定した定数(MAX_MESSAGE_LENGTH)ごとに分割
+      const chunks = [];
+      for (let i = 0; i < replyContent.length; i += MAX_MESSAGE_LENGTH) {
+        chunks.push(replyContent.slice(i, i + MAX_MESSAGE_LENGTH));
+      }
+
+      let targetMessage: Message = message;
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        
+        targetMessage = await targetMessage.reply(chunk);
+      }
     } else {
       await message.reply("返答を生成できませんでした。");
     }
   } catch (error) {
-    console.error('[LLM] OpenAI Error:', error);
-    await message.reply('APIリクエスト中にエラーが発生しました。設定やAPIキーを確認してください。');
+    logger.error('Discord: メッセージ送信エラー:', error);
   }
 }

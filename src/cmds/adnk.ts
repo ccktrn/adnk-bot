@@ -1,8 +1,8 @@
-import { SlashCommandBuilder, ChannelType, GuildMember, MessageFlags } from 'discord.js';
-import { existsSync } from 'fs';
-import { join } from 'path';
+import { SlashCommandBuilder, ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { SlashCmd } from '../type';
 import { ConfigRepository } from '../repositories/config-repository';
+import { handlePlay, handleSkip, handleStop, handleQueue } from '../handlers/music';
+import { handleSetSoundboard, handleUnsetSoundboard, handleSetVc, handleUnsetVc } from '../handlers/adnkConfig';
 
 const repo = new ConfigRepository();
 
@@ -26,6 +26,23 @@ const adnkCmd: SlashCmd = {
     .addSubcommand(sub => sub
       .setName('unset-vc')
       .setDescription('ボイスチャンネルの登録を解除します')
+    )
+    .addSubcommand(sub => sub
+      .setName('play')
+      .setDescription('YouTubeなどのURLから音楽を再生します')
+      .addStringOption(opt => opt.setName('url').setDescription('再生する動画・音楽のURL').setRequired(true))
+    )
+    .addSubcommand(sub => sub
+      .setName('skip')
+      .setDescription('現在再生中の曲をスキップします')
+    )
+    .addSubcommand(sub => sub
+      .setName('stop')
+      .setDescription('再生を停止し、キューをクリアします')
+    )
+    .addSubcommand(sub => sub
+      .setName('queue')
+      .setDescription('現在の再生キュー（順番待ちリスト）を表示します')
     ) as unknown as any,
 
   execute: async (interaction) => {
@@ -39,57 +56,33 @@ const adnkCmd: SlashCmd = {
       return;
     }
 
-    const channel = interaction.channel;
-    if (subCmd === 'set-vc') {
-      if (!channel || !channel.isVoiceBased()) {
-        await interaction.reply({ content: '❌ このコマンドはボイスチャンネルの専用テキストチャット内で実行してください。', flags: [MessageFlags.Ephemeral] });
-        return;
-      }
-    }
-
-    if (subCmd === 'set-soundboard') {
-      const name = interaction.options.getString('name', true);
-      const sounds = await interaction.guild?.soundboardSounds.fetch();
-      const sound = sounds?.find(s => s.name === name);
-      
-      const defaultSounds = ["quack", "airhorn", "cricket", "golf clap", "sad horn", "ba dum tss"];
-      
-      let warningMsg = '';
-      if (!sound && !defaultSounds.includes(name.toLowerCase())) {
-        warningMsg = `\n⚠️ **警告:** サーバー内に \`${name}\` という名前のサウンドボードが見つかりません！追加されるまでデフォルトの音が鳴ります。`;
-      }
-      repo.setSoundboardId(guildId, name);
-      await interaction.reply({ content: `✅ サウンドボード名を \`${name}\` に設定しました。${warningMsg}` });
-    } 
-    else if (subCmd === 'unset-soundboard') {
-      repo.setSoundboardId(guildId, null);
-      await interaction.reply({ content: `✅ サウンドボードの設定を解除しました。` });
-    }
-    else if (subCmd === 'set-vc') {
-      const vc = channel!;
-      const guild = interaction.guild;
-      let warningMsg = '';
-      if (guild) {
-        const botMember = guild.members.me || await guild.members.fetch(interaction.client.user.id);
-        const channelObj = await guild.channels.fetch(vc.id).catch(() => null);
-        if (channelObj && channelObj.isVoiceBased()) {
-          const permissions = channelObj.permissionsFor(botMember);
-          if (!permissions?.has('Connect')) {
-            await interaction.reply({ content: `❌ 失敗: Botに <#${vc.id}> への「接続」権限がありません。\nチャンネルまたはサーバーの権限設定を見直してください。`, flags: [MessageFlags.Ephemeral] });
-            return;
-          }
-          if (!permissions?.has('UseSoundboard')) {
-            warningMsg += `\n⚠️ **警告:** Botに「サウンドボードを使用」権限がありません！`;
-          }
-        }
-      }
-      
-      repo.setVcId(guildId, vc.id);
-      await interaction.reply({ content: `✅ ボイスチャンネル <#${vc.id}> を自動参加対象に登録しました。${warningMsg}` });
-    }
-    else if (subCmd === 'unset-vc') {
-      repo.setVcId(guildId, null);
-      await interaction.reply({ content: `✅ ボイスチャンネルの登録を解除しました。` });
+    switch (subCmd) {
+      case 'set-soundboard':
+        await handleSetSoundboard(interaction, guildId, repo);
+        break;
+      case 'unset-soundboard':
+        await handleUnsetSoundboard(interaction, guildId, repo);
+        break;
+      case 'set-vc':
+        await handleSetVc(interaction, guildId, repo);
+        break;
+      case 'unset-vc':
+        await handleUnsetVc(interaction, guildId, repo);
+        break;
+      case 'play':
+        await handlePlay(interaction, guildId);
+        break;
+      case 'skip':
+        await handleSkip(interaction, guildId);
+        break;
+      case 'stop':
+        await handleStop(interaction, guildId);
+        break;
+      case 'queue':
+        await handleQueue(interaction, guildId);
+        break;
+      default:
+        await interaction.reply({ content: '不明なサブコマンドです。', flags: [MessageFlags.Ephemeral] });
     }
   }
 };

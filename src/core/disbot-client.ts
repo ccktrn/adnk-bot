@@ -3,6 +3,7 @@ import { Routes } from 'discord-api-types/v9'
 import { SlashCmd } from '../type';
 
 import * as dotenv from "dotenv";
+import { logger } from '../lib/logger';
 
 type DiscordMessageCategory = 'log' | 'info' | 'warning' | 'success' | 'error';
 
@@ -81,12 +82,12 @@ class DisbotClient {
     try {
       const guild = await DisbotClient.client.guilds.fetch(guild_id);
       await guild.commands.set(cmds);
-      console.log(`Commands registered successfully in guild: ${guild.name} (id: ${guild.id})`);
+      logger.log(`Commands registered successfully in guild: ${guild.name} (id: ${guild.id})`);
     } catch (error: any) {
       if (error.code === 10004) {
-        console.warn(`[WARN] The bot has not been invited to the dev guild (ID: ${guild_id}) yet. Skipping command registration for this guild.`);
+        logger.warn(`[WARN] The bot has not been invited to the dev guild (ID: ${guild_id}) yet. Skipping command registration for this guild.`);
       } else {
-        console.error(`Failed to register commands for dev guild ${guild_id}:`, error);
+        logger.error(`Failed to register commands for dev guild ${guild_id}:`, error);
       }
     }
   }
@@ -98,10 +99,10 @@ class DisbotClient {
     const cmds = Array.from(cmdMap.values()).map(cmd => cmd.builder)
     DisbotClient.client.application?.commands.set(cmds)
     .then(() => {
-      console.log("Commands registered successfully.");
+      logger.log("Commands registered successfully.");
     })
     .catch(error => {
-      console.error("Failed to register commands:", error);
+      logger.error("Failed to register commands:", error);
     });
     return
   }

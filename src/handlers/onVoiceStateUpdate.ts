@@ -1,6 +1,7 @@
 import { VoiceState } from 'discord.js';
 import { joinVoiceChannel, VoiceConnectionStatus, getVoiceConnection } from '@discordjs/voice';
 import { ConfigRepository } from '../repositories/config-repository';
+import { logger } from '../lib/logger';
 
 const DELAY_SOUNDBOARD = 500; // Delay in milliseconds before sending the soundboard sound after joining the VC
 
@@ -26,19 +27,19 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
         if (humanMembers.size === 0) {
           const connection = getVoiceConnection(guild.id);
           if (connection) {
-            console.log(`[Voice] Everyone left ${channel.name}. Destroying connection.`);
+            logger.log(`[Voice] Everyone left ${channel.name}. Destroying connection.`);
             connection.destroy();
           }
         }
       }
     } catch (error) {
-      console.error(`[Voice] Error during leave logic:`, error);
+      logger.error(`[Voice] Error during leave logic:`, error);
     }
   }
 
   // ===== JOIN LOGIC (入室時の処理) =====
   if (newState.channelId === config.vc_id) {
-    console.log(`[Voice] User ${newState.member?.user.tag} joined target VC. Proceeding to play sound.`);
+    logger.log(`[Voice] User ${newState.member?.user.tag} joined target VC. Proceeding to play sound.`);
     
     let soundId = "2"; // Default Airhorn
     let sourceGuildId: string | undefined = undefined;
@@ -65,26 +66,27 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
             soundId = sound.soundId;
             sourceGuildId = guild.id;
           } else {
-            console.warn(`[Voice] Soundboard sound "${soundName}" not found. Falling back to Airhorn.`);
+            logger.warn(`[Voice] Soundboard sound "${soundName}" not found. Falling back to Airhorn.`);
           }
         }
       } catch (error) {
-        console.error(`[Voice] Failed to fetch soundboard sounds:`, error);
+        logger.error(`[Voice] Failed to fetch soundboard sounds:`, error);
       }
     }
 
     const playSound = async () => {
-      console.log(`[Voice] Sending soundboard sound (ID: ${soundId})...`);
+      logger.log(`[Voice] Sending soundboard sound (ID: ${soundId})...`);
       try {
+        // TODO: discord.jsがサウンドボード送信APIに正式対応したらanyを外す
         await (guild.client as any).rest.post(`/channels/${newState.channelId}/send-soundboard-sound`, {
           body: {
             sound_id: soundId,
             source_guild_id: sourceGuildId
           }
         });
-        console.log(`[Voice] Soundboard sound sent successfully!`);
+        logger.log(`[Voice] Soundboard sound sent successfully!`);
       } catch (error) {
-        console.error(`[Voice] Failed to send soundboard sound:`, error);
+        logger.error(`[Voice] Failed to send soundboard sound:`, error);
       }
     };
 
@@ -98,7 +100,7 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
           const botMember = guild.members.me || await guild.members.fetch(newState.client.user.id);
           const permissions = channel.permissionsFor(botMember);
           if (!permissions?.has('Connect')) {
-            console.error(`[Voice] FAILED: Bot lacks CONNECT permission for channel ${channel.name}`);
+            logger.error(`[Voice] FAILED: Bot lacks CONNECT permission for channel ${channel.name}`);
             return;
           }
         }
@@ -111,9 +113,9 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
           selfMute: false,
         });
         
-        console.log(`[Voice] Connecting to VC...`);
+        logger.log(`[Voice] Connecting to VC...`);
         connection.once(VoiceConnectionStatus.Ready, () => {
-          console.log(`[Voice] Connection Ready!`);
+          logger.log(`[Voice] Connection Ready!`);
           // wait for a short delay to ensure the connection is stable before sending the sound
           setTimeout(() => {
             playSound();
@@ -129,7 +131,7 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
       }
 
     } catch (error) {
-      console.error('Error in VoiceStateUpdate join logic:', error);
+      logger.error('Error in VoiceStateUpdate join logic:', error);
     }
   }
 }

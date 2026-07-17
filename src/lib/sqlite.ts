@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
-import fs from 'fs';
-import path from 'path';
+import * as path from "path";
+import * as fs from "fs";
+import { logger } from './logger';
 
 export class SQLiteService {
     private db: Database;
@@ -16,7 +17,7 @@ export class SQLiteService {
             fs.mkdirSync(dir, { recursive: true });
         }
 
-        console.log(`Loading SQLite DB from: ${dbPath}`);
+        logger.log(`Loading SQLite DB from: ${dbPath}`);
         this.db = new Database(dbPath, { create: true });
     }
 

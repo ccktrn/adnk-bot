@@ -1,10 +1,11 @@
-import { Events, OAuth2Scopes } from "discord.js";
+import { Events, OAuth2Scopes, MessageFlags } from "discord.js";
 import * as dotenv from "dotenv";
 import { generateDependencyReport } from '@discordjs/voice';
 import { handleVoiceStateUpdate } from "./handlers/onVoiceStateUpdate";
 import { handleMessageCreate } from "./handlers/onMessageCreate";
+import { logger } from "./lib/logger";
 import createCmdMap from "./lib/create-cmd-map";
-import DisbotClient from "./wrapper/disbot-client";
+import DisbotClient from "./core/disbot-client";
 
 dotenv.config();
 
@@ -16,8 +17,7 @@ const cmdMap = createCmdMap(); // Create the command map from the cmds directory
 
 // clientReady
 client.once(Events.ClientReady, readyClient => {
-	console.log(`Ready! Logged in as ${readyClient.user.tag}`);
-  console.log(generateDependencyReport());
+  logger.log(generateDependencyReport());
   // generate an invite link for the bot
   const inviteLink = readyClient.generateInvite({
     scopes: [
@@ -34,7 +34,7 @@ client.once(Events.ClientReady, readyClient => {
       'UseSoundboard',
     ]
   });
-  console.log(`${"-".repeat(10)}\n Invite link for the bot :\n${inviteLink} \n${"-".repeat(10)}`);
+  logger.log(`${"-".repeat(10)}\n Invite link for the bot :\n${inviteLink} \n${"-".repeat(10)}`);
 
   // const devGuildId = process.env.DISCORD_DEV_GUILD_ID 
   // if (devGuildId){ 
@@ -51,7 +51,7 @@ client.once(Events.ClientReady, readyClient => {
 
 // Register commands when the bot joins a new guild (discord-server)
 client.on(Events.GuildCreate, async guild => {
-  console.log(`Joined a new guild: ${guild.name} (id: ${guild.id}).`);
+  logger.log(`Joined a new guild: ${guild.name} (id: ${guild.id}).`);
   await DisbotClient.deployCmdsForGuild(cmdMap, guild.id);
 });
 
@@ -82,8 +82,16 @@ client.on(Events.InteractionCreate, async interaction => {
   try {
     await command.execute(interaction);
   } catch (error) {
-    console.error(`Error executing command ${interaction.commandName}:`, error);
-    await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
+    logger.error(`Error executing command ${interaction.commandName}:`, error);
+    try {
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp({ content: 'There was an error while executing this command!', flags: [MessageFlags.Ephemeral] });
+      } else {
+        await interaction.reply({ content: 'There was an error while executing this command!', flags: [MessageFlags.Ephemeral] });
+      }
+    } catch (e) {
+      logger.error('Failed to send fallback error message:', e);
+    }
   }
 });
 

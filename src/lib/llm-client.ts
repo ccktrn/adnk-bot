@@ -1,4 +1,6 @@
 import OpenAI from "openai";
+import * as Discord from 'discord.js';
+import { logger } from './logger';
 
 // 環境変数から設定を取得 (デフォルトはOpenRouter)
 const apiKey = process.env.LLM_API_KEY || "";
@@ -14,32 +16,40 @@ const openai = new OpenAI({
 });
 
 
-export const generateLLMResponse = async (chatMessages: OpenAI.Chat.ChatCompletionMessageParam[]): Promise<string> => {
+export const generateLLMResponse = async (
+  chatMessages: OpenAI.Chat.ChatCompletionMessageParam[],
+  discordMsg?: Discord.Message
+): Promise<string> => {
   if (!apiKey) {
     return "エラー: LLM_API_KEY が環境変数に設定されていません。";
   }
 
-  
+  const id = discordMsg?.id || Math.random().toString(36).substring(2, 15); // ランダムなIDを生成
 
   let messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: 'system', content: LLM_SYSTEM_PROMPT }, 
     ...chatMessages
   ];
-  let accumulatedContent = "";
 
   try {
-    const seed = Math.floor(Math.random() * 1000000);
-    const response = await openai.chat.completions.create({
+    const request = {
       model: modelName,
       messages: messages,
-      seed,
-    });
+      // seed: Math.floor(Math.random() * 1000000) // modelによってseed指定非対応
+    };
 
-    console.log("LLM API response:", {
-      id: response.id,
+    logger.log("LLM API Request (" + id + "):\n", {
+      discordMsg: discordMsg?.url,
+      model: modelName,
+      requested: new Date(),
+    })
+
+    const response = await openai.chat.completions.create(request);
+
+    logger.log("LLM API Response (" + id + "):\n", {
+      responceId: response.id,
       model: response.model,
-      created: response.created,
-      seed,
+      responced: new Date(),
       usage: {
         prompt_tokens: response.usage?.prompt_tokens,
         completion_tokens: response.usage?.completion_tokens,
@@ -47,11 +57,18 @@ export const generateLLMResponse = async (chatMessages: OpenAI.Chat.ChatCompleti
       }
     });
     
-    const message = response.choices[0]?.message;
+    const message = response.choices?.[0]?.message;
  
     return message?.content?.trim() ? message.content : "（返答を生成できませんでした）";
   } catch (error) {
-    console.error("LLM API error:", error);
+    logger.error("LLM API error at:\n", 
+      {
+        discordMsg: discordMsg?.url,
+        model: modelName,
+        requested: discordMsg?.createdAt,
+      }, 
+      "Error:", error
+    );
     return "申し訳ありません、LLM APIとの通信中にエラーが発生しました。";
   }
 };

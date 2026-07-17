@@ -1,6 +1,7 @@
 import { SlashCmd } from "../type";
 import { readdirSync } from "fs";
 import { join } from "path";
+import { logger } from "./logger";
 
 
 // find cmds in the cmds directory
@@ -15,7 +16,7 @@ function createCmdMap(): Map<string, SlashCmd> {
     if (cmd && cmd.builder && typeof cmd.execute === "function") {
       cmdMap.set(cmd.builder.name, cmd);
     } else {
-      console.warn(`Command in file ${file} is missing 'builder' or 'execute' properties.`);
+      logger.warn(`Command in file ${file} is missing 'builder' or 'execute' properties.`);
     }
   }
   return cmdMap;
