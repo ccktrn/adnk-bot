@@ -12,7 +12,7 @@ export async function handleMessageCreate(message: Message) {
   const client = message.client;
   if (!client.user) return;
 
-  let isTarget = message.mentions.has(client.user.id);
+  let isTarget = message.mentions.users.has(client.user.id);
 
   // メンションされていなくても、Botへのリプライであれば反応する
   if (!isTarget && message.reference?.messageId) {
