@@ -2,6 +2,7 @@ import { VoiceState } from 'discord.js';
 import { joinVoiceChannel, VoiceConnectionStatus, getVoiceConnection } from '@discordjs/voice';
 import { ConfigRepository } from '../repositories/config-repository';
 import { logger } from '../lib/logger';
+import { isReadyForChannel, monitorVoiceConnection } from '../lib/voice-connection';
 
 const DELAY_SOUNDBOARD = 500; // Delay in milliseconds before sending the soundboard sound after joining the VC
 
@@ -39,6 +40,7 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
 
   // ===== JOIN LOGIC (入室時の処理) =====
   if (newState.channelId === config.vc_id) {
+    const targetChannelId = config.vc_id;
     logger.log(`[Voice] User ${newState.member?.user.tag} joined target VC. Proceeding to play sound.`);
     
     let soundId = "2"; // Default Airhorn
@@ -90,11 +92,32 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
       }
     };
 
+    const scheduleSound = () => {
+      setTimeout(() => {
+        const activeConnection = getVoiceConnection(guild.id);
+        if (!isReadyForChannel(activeConnection, targetChannelId)) {
+          logger.warn('[Voice] Skipping soundboard playback because the voice connection is not ready.');
+          return;
+        }
+        void playSound();
+      }, DELAY_SOUNDBOARD);
+    };
+
     try {
       let connection = getVoiceConnection(guild.id);
+      const botVoiceChannelId = guild.members.me?.voice.channelId;
       
-      // Botがまだ対象のVCにいない場合は入室する
-      if (!connection || connection.joinConfig.channelId !== newState.channelId) {
+      // 接続オブジェクトが残っていても、ReadyでなければDiscord上ではVCにいない。
+      // 壊れた接続を再利用せず破棄して、新しい接続を作る。
+      if (connection && (!isReadyForChannel(connection, newState.channelId)
+        || (botVoiceChannelId != null && botVoiceChannelId !== newState.channelId))) {
+        logger.warn(`[Voice] Discarding stale connection for guild ${guild.id} (status: ${connection.state.status}, bot channel: ${botVoiceChannelId ?? 'unknown'}).`);
+        connection.destroy();
+        connection = undefined;
+      }
+
+      // Botがまだ対象のVCに接続済みでない場合は入室する
+      if (!connection) {
         const channel = await guild.channels.fetch(newState.channelId).catch(() => null);
         if (channel && channel.isVoiceBased()) {
           const botMember = guild.members.me || await guild.members.fetch(newState.client.user.id);
@@ -112,22 +135,19 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
           selfDeaf: false,
           selfMute: false,
         });
+        monitorVoiceConnection(connection);
         
         logger.log(`[Voice] Connecting to VC...`);
         connection.once(VoiceConnectionStatus.Ready, () => {
           logger.log(`[Voice] Connection Ready!`);
           // wait for a short delay to ensure the connection is stable before sending the sound
-          setTimeout(() => {
-            playSound();
-          }, DELAY_SOUNDBOARD);
+          scheduleSound();
         });
         
       } else {
         // 既にVCにいる場合はそのまま鳴らす
         // wait for a short delay to ensure the connection is stable before sending the sound
-        setTimeout(() => {
-          playSound();
-        }, DELAY_SOUNDBOARD);
+        scheduleSound();
       }
 
     } catch (error) {

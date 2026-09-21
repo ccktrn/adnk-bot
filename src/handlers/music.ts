@@ -2,6 +2,7 @@ import { ChatInputCommandInteraction, GuildMember, MessageFlags, GuildTextBasedC
 import { MusicManager } from '../lib/music-player';
 import { getVideoInfo } from '../lib/yt-dlp';
 import { joinVoiceChannel, getVoiceConnection } from '@discordjs/voice';
+import { isReadyForChannel, monitorVoiceConnection } from '../lib/voice-connection';
 
 export async function handlePlay(interaction: ChatInputCommandInteraction, guildId: string) {
   const url = interaction.options.getString('url', true);
@@ -25,13 +26,18 @@ export async function handlePlay(interaction: ChatInputCommandInteraction, guild
     };
 
     let connection = getVoiceConnection(guildId);
-    if (!connection || connection.joinConfig.channelId !== voiceChannel.id) {
+    if (connection && !isReadyForChannel(connection, voiceChannel.id)) {
+      connection.destroy();
+      connection = undefined;
+    }
+    if (!connection) {
       connection = joinVoiceChannel({
         channelId: voiceChannel.id,
         guildId: guildId,
         adapterCreator: voiceChannel.guild.voiceAdapterCreator,
         selfMute: false,
       });
+      monitorVoiceConnection(connection);
     }
 
     const queue = MusicManager.getQueue(guildId);

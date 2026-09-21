@@ -1,4 +1,4 @@
-import { AudioPlayer, AudioPlayerStatus, createAudioPlayer, createAudioResource, getVoiceConnection, VoiceConnection } from '@discordjs/voice';
+import { AudioPlayer, AudioPlayerStatus, createAudioPlayer, createAudioResource, getVoiceConnection, VoiceConnection, VoiceConnectionStatus } from '@discordjs/voice';
 import { logger } from './logger';
 import { GuildTextBasedChannel, VoiceBasedChannel } from 'discord.js';
 import { getAudioStream } from './yt-dlp';
@@ -56,19 +56,27 @@ export class GuildQueue {
     try {
       this.isPlaying = true;
       logger.log(`[Music] Playing stream for ${currentSong.url}`);
-      
+
+      // 以前の接続を保持せず、曲ごとに現在のVoiceConnectionを取得する。
+      const activeConnection = getVoiceConnection(this.guildId);
+      if (!activeConnection || activeConnection.state.status !== VoiceConnectionStatus.Ready) {
+        this.connection = activeConnection || null;
+        this.isPlaying = false;
+        logger.warn('[Music] Voice connection is not ready; keeping the queue until it reconnects.');
+        activeConnection?.once(VoiceConnectionStatus.Ready, () => {
+          if (!this.isPlaying && this.songs.length > 0) {
+            logger.log('[Music] Voice connection is ready; resuming the queue.');
+            void this.playNext();
+          }
+        });
+        return;
+      }
+      this.connection = activeConnection;
+      this.connection.subscribe(this.player);
+
       const stream = getAudioStream(currentSong.url);
       const resource = createAudioResource(stream);
-
       this.player.play(resource);
-      
-      // botのVoiceConnectionを取得して、Playerをサブスクライブさせる
-      if (!this.connection) {
-        this.connection = getVoiceConnection(this.guildId) || null;
-      }
-      if (this.connection) {
-        this.connection.subscribe(this.player);
-      }
 
       if (this.textChannel) {
         this.textChannel.send(`🎶 再生開始: **${currentSong.title}** (リクエスト: ${currentSong.requestedBy})`);
