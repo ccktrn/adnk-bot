@@ -11,12 +11,21 @@ const repo = new ConfigRepository();
 export async function handleVoiceStateUpdate(oldState: VoiceState, newState: VoiceState) {
   // ユーザーの移動ではない場合（ミュートなど）は無視
   if (oldState.channelId === newState.channelId) return;
-  // Bot自身のイベントは無視
-  if (newState.member?.user.bot) return;
-
   const guild = newState.guild;
   const config = repo.getConfig(guild.id);
   if (!config || !config.vc_id) return;
+
+  // 他のBotのイベントは無視する。ただし自身の切断は、接続状態の調査に必要なので記録する。
+  if (newState.member?.user.bot) {
+    if (newState.member.id === newState.client.user.id
+      && oldState.channelId === config.vc_id
+      && newState.channelId !== config.vc_id) {
+      logger.warn(
+        `[Voice] Bot was removed from target VC (new channel: ${newState.channelId ?? 'none'}).`,
+      );
+    }
+    return;
+  }
 
   // ===== LEAVE LOGIC (退出時の処理) =====
   if (oldState.channelId === config.vc_id) {
@@ -95,8 +104,15 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
     const scheduleSound = () => {
       setTimeout(() => {
         const activeConnection = getVoiceConnection(guild.id);
-        if (!isReadyForChannel(activeConnection, targetChannelId)) {
-          logger.warn('[Voice] Skipping soundboard playback because the voice connection is not ready.');
+        const botVoiceChannelId = guild.members.me?.voice.channelId;
+        if (!isReadyForChannel(activeConnection, targetChannelId)
+          || botVoiceChannelId !== targetChannelId) {
+          logger.warn(
+            `[Voice] Skipping soundboard playback because the bot is not connected to the target VC (connection: ${activeConnection?.state.status ?? 'none'}, bot channel: ${botVoiceChannelId ?? 'none'}).`,
+          );
+          // @discordjs/voice can temporarily report Ready after Discord has already
+          // removed the Bot. Discard that stale connection so the next join recreates it.
+          activeConnection?.destroy();
           return;
         }
         void playSound();
@@ -110,7 +126,7 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
       // 接続オブジェクトが残っていても、ReadyでなければDiscord上ではVCにいない。
       // 壊れた接続を再利用せず破棄して、新しい接続を作る。
       if (connection && (!isReadyForChannel(connection, newState.channelId)
-        || (botVoiceChannelId != null && botVoiceChannelId !== newState.channelId))) {
+        || botVoiceChannelId !== newState.channelId)) {
         logger.warn(`[Voice] Discarding stale connection for guild ${guild.id} (status: ${connection.state.status}, bot channel: ${botVoiceChannelId ?? 'unknown'}).`);
         connection.destroy();
         connection = undefined;
