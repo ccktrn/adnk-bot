@@ -1,5 +1,8 @@
 FROM oven/bun:latest
 
+ARG GIT_COMMIT=unknown
+ENV BUILD_GIT_COMMIT=${GIT_COMMIT}
+
 WORKDIR /app
 
 # Required for discord.js voice (ffmpeg) and yt-dlp

@@ -9,7 +9,7 @@ help:   # show this list
 
 .PHONY : up down check
 up:   # run the application
-	@docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+	@GIT_COMMIT=$$(git rev-parse --short=12 HEAD)$$(git status --porcelain | grep -q . && printf '%s' '-dirty') docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 down :   # stop the application
 	@docker compose down
 check:   # check the typescript code
@@ -18,9 +18,8 @@ check:   # check the typescript code
 .PHONY : deploy build clean
 
 deploy:   # deploy the application
-	@docker compose up -d
+	@GIT_COMMIT=$$(git rev-parse --short=12 HEAD)$$(git status --porcelain | grep -q . && printf '%s' '-dirty') docker compose up -d
 build:   # build the application
-	@docker compose build
+	@GIT_COMMIT=$$(git rev-parse --short=12 HEAD)$$(git status --porcelain | grep -q . && printf '%s' '-dirty') docker compose build
 clean:   # clean the application
 	@docker compose down --rmi all --volumes --remove-orphans
-	

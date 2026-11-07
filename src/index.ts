@@ -9,6 +9,7 @@ import DisbotClient from "./core/disbot-client";
 
 dotenv.config();
 
+logger.log(`[Build] git_commit=${process.env.BUILD_GIT_COMMIT ?? 'unknown'} bun=${Bun.version}`);
 
 // Create a new Discord client instance
 const client = DisbotClient.createClient();

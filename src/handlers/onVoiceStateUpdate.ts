@@ -1,5 +1,5 @@
-import { VoiceState } from 'discord.js';
-import { joinVoiceChannel, VoiceConnectionStatus, getVoiceConnection } from '@discordjs/voice';
+import { Guild, VoiceState } from 'discord.js';
+import { joinVoiceChannel, VoiceConnection, VoiceConnectionStatus, getVoiceConnection } from '@discordjs/voice';
 import { ConfigRepository } from '../repositories/config-repository';
 import { logger } from '../lib/logger';
 import { isReadyForChannel, monitorVoiceConnection } from '../lib/voice-connection';
@@ -7,6 +7,45 @@ import { isReadyForChannel, monitorVoiceConnection } from '../lib/voice-connecti
 const DELAY_SOUNDBOARD = 500; // Delay in milliseconds before sending the soundboard sound after joining the VC
 
 const repo = new ConfigRepository();
+
+function isUsableConnection(connection: VoiceConnection | undefined, channelId: string): boolean {
+  return connection?.joinConfig.channelId === channelId
+    && connection.state.status !== VoiceConnectionStatus.Destroyed
+    && connection.state.status !== VoiceConnectionStatus.Disconnected;
+}
+
+async function createConnection(guild: Guild, channelId: string): Promise<VoiceConnection | undefined> {
+  const channel = await guild.channels.fetch(channelId).catch(() => null);
+  if (channel && channel.isVoiceBased()) {
+    const botMember = guild.members.me || await guild.members.fetch(guild.client.user.id);
+    const permissions = channel.permissionsFor(botMember);
+    if (!permissions?.has('Connect')) {
+      logger.error(`[Voice] FAILED: Bot lacks CONNECT permission for channel ${channel.name}`);
+      return undefined;
+    }
+  }
+
+  const connection = joinVoiceChannel({
+    channelId,
+    guildId: guild.id,
+    adapterCreator: (methods) => guild.voiceAdapterCreator(methods),
+    selfDeaf: false,
+    selfMute: false,
+  });
+  monitorVoiceConnection(connection);
+  logger.log(`[Voice] Connecting to VC...`);
+  return connection;
+}
+
+async function recreateConnection(guild: Guild, channelId: string, reason: string): Promise<VoiceConnection | undefined> {
+  const existingConnection = getVoiceConnection(guild.id);
+  if (existingConnection) {
+    logger.warn(`[Voice] Destroying connection for guild ${guild.id} before recovery: ${reason}`);
+    existingConnection.destroy();
+  }
+
+  return createConnection(guild, channelId);
+}
 
 export async function handleVoiceStateUpdate(oldState: VoiceState, newState: VoiceState) {
   // ユーザーの移動ではない場合（ミュートなど）は無視
@@ -23,6 +62,20 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
       logger.warn(
         `[Voice] Bot was removed from target VC (new channel: ${newState.channelId ?? 'none'}).`,
       );
+
+      // Discord removed or moved the Bot. The old VoiceConnection can otherwise
+      // remain Ready locally and prevent later user joins from creating a new one.
+      const oldChannel = oldState.channel;
+      const hasHumanMembers = oldChannel?.members.some(member => !member.user.bot) ?? false;
+      const staleConnection = getVoiceConnection(guild.id);
+      staleConnection?.destroy();
+      if (hasHumanMembers) {
+        const recoveredConnection = await createConnection(guild, config.vc_id);
+        if (!recoveredConnection) return;
+        recoveredConnection.once(VoiceConnectionStatus.Ready, () => {
+          logger.log(`[Voice] Recovered connection to target VC after Bot removal.`);
+        });
+      }
     }
     return;
   }
@@ -85,7 +138,7 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
       }
     }
 
-    const playSound = async () => {
+    const playSound = async (retryAfterRecovery = true) => {
       logger.log(`[Voice] Sending soundboard sound (ID: ${soundId})...`);
       try {
         // TODO: discord.jsがサウンドボード送信APIに正式対応したらanyを外す
@@ -98,6 +151,22 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
         logger.log(`[Voice] Soundboard sound sent successfully!`);
       } catch (error) {
         logger.error(`[Voice] Failed to send soundboard sound:`, error);
+        const errorCode = typeof error === 'object' && error !== null && 'code' in error
+          ? error.code
+          : undefined;
+        if (retryAfterRecovery && errorCode === 50168) {
+          logger.warn('[Voice] Discord reports that the Bot is absent from the VC; recreating the connection.');
+          const recoveredConnection = await recreateConnection(
+            guild,
+            targetChannelId,
+            'soundboard API returned 50168',
+          );
+          if (recoveredConnection) {
+            recoveredConnection.once(VoiceConnectionStatus.Ready, () => {
+              void playSound(false);
+            });
+          }
+        }
       }
     };
 
@@ -112,7 +181,13 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
           );
           // @discordjs/voice can temporarily report Ready after Discord has already
           // removed the Bot. Discard that stale connection so the next join recreates it.
-          activeConnection?.destroy();
+          void recreateConnection(
+            guild,
+            targetChannelId,
+            'local voice state did not match the target channel',
+          ).then(recoveredConnection => {
+            recoveredConnection?.once(VoiceConnectionStatus.Ready, scheduleSound);
+          });
           return;
         }
         void playSound();
@@ -123,10 +198,9 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
       let connection = getVoiceConnection(guild.id);
       const botVoiceChannelId = guild.members.me?.voice.channelId;
       
-      // 接続オブジェクトが残っていても、ReadyでなければDiscord上ではVCにいない。
-      // 壊れた接続を再利用せず破棄して、新しい接続を作る。
-      if (connection && (!isReadyForChannel(connection, newState.channelId)
-        || botVoiceChannelId !== newState.channelId)) {
+      // A second user can join while the first connection is still Signalling or
+      // Connecting. Do not destroy that healthy in-flight connection.
+      if (connection && !isUsableConnection(connection, newState.channelId)) {
         logger.warn(`[Voice] Discarding stale connection for guild ${guild.id} (status: ${connection.state.status}, bot channel: ${botVoiceChannelId ?? 'unknown'}).`);
         connection.destroy();
         connection = undefined;
@@ -134,33 +208,15 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
 
       // Botがまだ対象のVCに接続済みでない場合は入室する
       if (!connection) {
-        const channel = await guild.channels.fetch(newState.channelId).catch(() => null);
-        if (channel && channel.isVoiceBased()) {
-          const botMember = guild.members.me || await guild.members.fetch(newState.client.user.id);
-          const permissions = channel.permissionsFor(botMember);
-          if (!permissions?.has('Connect')) {
-            logger.error(`[Voice] FAILED: Bot lacks CONNECT permission for channel ${channel.name}`);
-            return;
-          }
-        }
-
-        connection = joinVoiceChannel({
-          channelId: newState.channelId,
-          guildId: guild.id,
-          adapterCreator: (methods) => guild.voiceAdapterCreator(methods),
-          selfDeaf: false,
-          selfMute: false,
-        });
-        monitorVoiceConnection(connection);
-        
-        logger.log(`[Voice] Connecting to VC...`);
+        connection = await createConnection(guild, newState.channelId);
+        if (!connection) return;
         connection.once(VoiceConnectionStatus.Ready, () => {
           logger.log(`[Voice] Connection Ready!`);
           // wait for a short delay to ensure the connection is stable before sending the sound
           scheduleSound();
         });
         
-      } else {
+      } else if (connection.state.status === VoiceConnectionStatus.Ready) {
         // 既にVCにいる場合はそのまま鳴らす
         // wait for a short delay to ensure the connection is stable before sending the sound
         scheduleSound();
