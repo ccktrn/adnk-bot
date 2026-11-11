@@ -10,44 +10,44 @@ const repo = new ConfigRepository();
 const adnkCmd: SlashCmd = {
   builder: new SlashCommandBuilder()
     .setName('adnk')
-    .setDescription('Adnk Botの設定コマンド')
-    .addSubcommand(sub => sub
-      .setName('set-soundboard')
-      .setDescription('サウンドボード名を設定します')
-      .addStringOption(opt => opt.setName('name').setDescription('サウンドボードの名前').setRequired(true))
+    .setDescription('ADNK Botコマンド')
+    .addSubcommandGroup(group => group
+      .setName('soundboard')
+      .setDescription('サウンドボード設定')
+      .addSubcommand(sub => sub
+        .setName('set')
+        .setDescription('サウンドボード名を設定します')
+        .addStringOption(opt => opt.setName('name').setDescription('サウンドボードの名前').setRequired(true))
+      )
+      .addSubcommand(sub => sub
+        .setName('unset')
+        .setDescription('サウンドボード設定を解除します')
+      )
     )
-    .addSubcommand(sub => sub
-      .setName('unset-soundboard')
-      .setDescription('サウンドボード設定を解除します')
+    .addSubcommandGroup(group => group
+      .setName('vc')
+      .setDescription('ボイスチャンネル設定')
+      .addSubcommand(sub => sub
+        .setName('set')
+        .setDescription('このチャンネルをBotの動作対象VCに登録します')
+      )
+      .addSubcommand(sub => sub
+        .setName('unset')
+        .setDescription('ボイスチャンネルの登録を解除します')
+      )
     )
-    .addSubcommand(sub => sub
-      .setName('set-vc')
-      .setDescription('このコマンドを実行したボイスチャンネルを自動参加対象に登録します')
-    )
-    .addSubcommand(sub => sub
-      .setName('unset-vc')
-      .setDescription('ボイスチャンネルの登録を解除します')
-    )
-    .addSubcommand(sub => sub
-      .setName('play')
-      .setDescription('YouTubeなどのURLから音楽を再生します')
-      .addStringOption(opt => opt.setName('url').setDescription('再生する動画・音楽のURL').setRequired(true))
-    )
-    .addSubcommand(sub => sub
-      .setName('skip')
-      .setDescription('現在再生中の曲をスキップします')
-    )
-    .addSubcommand(sub => sub
-      .setName('stop')
-      .setDescription('再生を停止し、キューをクリアします')
-    )
-    .addSubcommand(sub => sub
-      .setName('queue')
-      .setDescription('現在の再生キュー（順番待ちリスト）を表示します')
-    )
-    .addSubcommand(sub => sub
-      .setName('loop')
-      .setDescription('現在のキュー（再生中を含む）のループを切り替えます')
+    .addSubcommandGroup(group => group
+      .setName('music')
+      .setDescription('音楽再生')
+      .addSubcommand(sub => sub
+        .setName('play')
+        .setDescription('YouTubeなどのURLから音楽を再生します')
+        .addStringOption(opt => opt.setName('url').setDescription('再生する動画・音楽のURL').setRequired(true))
+      )
+      .addSubcommand(sub => sub.setName('skip').setDescription('現在再生中の曲をスキップします'))
+      .addSubcommand(sub => sub.setName('stop').setDescription('再生を停止し、キューをクリアします'))
+      .addSubcommand(sub => sub.setName('queue').setDescription('現在の再生キューを表示します'))
+      .addSubcommand(sub => sub.setName('loop').setDescription('現在のキューのループを切り替えます'))
     )
     .addSubcommand(sub => sub
       .setName('yomiage')
@@ -57,6 +57,7 @@ const adnkCmd: SlashCmd = {
   execute: async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
     
+    const group = interaction.options.getSubcommandGroup(false);
     const subCmd = interaction.options.getSubcommand();
     const guildId = interaction.guildId;
     
@@ -65,38 +66,27 @@ const adnkCmd: SlashCmd = {
       return;
     }
 
-    switch (subCmd) {
-      case 'set-soundboard':
+    if (group === 'soundboard' && subCmd === 'set') {
         await handleSetSoundboard(interaction, guildId, repo);
-        break;
-      case 'unset-soundboard':
+    } else if (group === 'soundboard' && subCmd === 'unset') {
         await handleUnsetSoundboard(interaction, guildId, repo);
-        break;
-      case 'set-vc':
+    } else if (group === 'vc' && subCmd === 'set') {
         await handleSetVc(interaction, guildId, repo);
-        break;
-      case 'unset-vc':
+    } else if (group === 'vc' && subCmd === 'unset') {
         await handleUnsetVc(interaction, guildId, repo);
-        break;
-      case 'play':
+    } else if (group === 'music' && subCmd === 'play') {
         await handlePlay(interaction, guildId, repo);
-        break;
-      case 'skip':
+    } else if (group === 'music' && subCmd === 'skip') {
         await handleSkip(interaction, guildId);
-        break;
-      case 'stop':
+    } else if (group === 'music' && subCmd === 'stop') {
         await handleStop(interaction, guildId);
-        break;
-      case 'queue':
+    } else if (group === 'music' && subCmd === 'queue') {
         await handleQueue(interaction, guildId);
-        break;
-      case 'loop':
+    } else if (group === 'music' && subCmd === 'loop') {
         await handleLoop(interaction, guildId);
-        break;
-      case 'yomiage':
+    } else if (!group && subCmd === 'yomiage') {
         await handleYomiage(interaction, guildId, repo);
-        break;
-      default:
+    } else {
         await interaction.reply({ content: '不明なサブコマンドです。', flags: [MessageFlags.Ephemeral] });
     }
   }
