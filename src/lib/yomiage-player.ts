@@ -5,7 +5,7 @@ import { synthesizeVoicevox } from './voicevox-client';
 
 const MAX_QUEUE_LENGTH = 10;
 
-type SpeechJob = { text: string; speakerId: number; connection: VoiceConnection };
+type SpeechJob = { text: string; speakerId: number; speedScale: number; connection: VoiceConnection };
 
 class GuildYomiageQueue {
   private readonly player = createAudioPlayer();
@@ -45,7 +45,7 @@ class GuildYomiageQueue {
     this.speaking = true;
     const generation = this.generation;
     try {
-      const audio = await synthesizeVoicevox(job.text, job.speakerId);
+      const audio = await synthesizeVoicevox(job.text, job.speakerId, job.speedScale);
       if (generation !== this.generation) return;
       job.connection.subscribe(this.player);
       this.player.play(createAudioResource(Readable.from(audio)));

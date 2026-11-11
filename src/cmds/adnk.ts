@@ -3,7 +3,8 @@ import { SlashCmd } from '../type';
 import { ConfigRepository } from '../repositories/config-repository';
 import { handleLoop, handlePlay, handleSkip, handleStop, handleQueue } from '../handlers/music';
 import { handleSetSoundboard, handleUnsetSoundboard, handleSetVc, handleUnsetVc } from '../handlers/adnkConfig';
-import { handleYomiage } from '../handlers/yomiage';
+import { handleYomiageSpeed, handleYomiageStart, handleYomiageStop, handleYomiageVoice } from '../handlers/yomiage';
+import { getVoicevoxSpeakerStyles } from '../lib/voicevox-client';
 
 const repo = new ConfigRepository();
 
@@ -49,9 +50,21 @@ const adnkCmd: SlashCmd = {
       .addSubcommand(sub => sub.setName('queue').setDescription('現在の再生キューを表示します'))
       .addSubcommand(sub => sub.setName('loop').setDescription('現在のキューのループを切り替えます'))
     )
-    .addSubcommand(sub => sub
+    .addSubcommandGroup(group => group
       .setName('yomiage')
-      .setDescription('このチャンネルの読み上げを有効・無効にします')
+      .setDescription('読み上げ設定')
+      .addSubcommand(sub => sub.setName('start').setDescription('このチャンネルの読み上げを有効にします'))
+      .addSubcommand(sub => sub.setName('stop').setDescription('読み上げを無効にします'))
+      .addSubcommand(sub => sub
+        .setName('speed')
+        .setDescription('読み上げ速度を設定します')
+        .addNumberOption(opt => opt.setName('value').setDescription('0.5〜2.0').setRequired(true).setMinValue(0.5).setMaxValue(2))
+        .addBooleanOption(opt => opt.setName('global').setDescription('サーバー既定値を変更します（省略時: false）')))
+      .addSubcommand(sub => sub
+        .setName('voice')
+        .setDescription('読み上げ音声を設定します')
+        .addStringOption(opt => opt.setName('value').setDescription('VOICEVOXの音声を選択').setRequired(true).setAutocomplete(true))
+        .addBooleanOption(opt => opt.setName('global').setDescription('サーバー既定値を変更します（省略時: false）')))
     ) as unknown as any,
 
   execute: async (interaction) => {
@@ -84,11 +97,30 @@ const adnkCmd: SlashCmd = {
         await handleQueue(interaction, guildId);
     } else if (group === 'music' && subCmd === 'loop') {
         await handleLoop(interaction, guildId);
-    } else if (!group && subCmd === 'yomiage') {
-        await handleYomiage(interaction, guildId, repo);
+    } else if (group === 'yomiage' && subCmd === 'start') {
+        await handleYomiageStart(interaction, guildId, repo);
+    } else if (group === 'yomiage' && subCmd === 'stop') {
+        await handleYomiageStop(interaction, guildId, repo);
+    } else if (group === 'yomiage' && subCmd === 'speed') {
+        await handleYomiageSpeed(interaction, guildId, repo);
+    } else if (group === 'yomiage' && subCmd === 'voice') {
+        await handleYomiageVoice(interaction, guildId, repo);
     } else {
         await interaction.reply({ content: '不明なサブコマンドです。', flags: [MessageFlags.Ephemeral] });
     }
+  },
+
+  autocomplete: async (interaction) => {
+    if (interaction.commandName !== 'adnk' || interaction.options.getSubcommandGroup(false) !== 'yomiage' || interaction.options.getSubcommand() !== 'voice') return;
+    const focused = interaction.options.getFocused(true);
+    if (focused.name !== 'value' || typeof focused.value !== 'string') return;
+    const query = focused.value.toLocaleLowerCase('ja-JP');
+    const styles = await getVoicevoxSpeakerStyles();
+    const choices = styles
+      .filter(style => `${style.speakerName} ${style.styleName} ${style.id}`.toLocaleLowerCase('ja-JP').includes(query))
+      .slice(0, 25)
+      .map(style => ({ name: `${style.speakerName}（${style.styleName}） [${style.id}]`.slice(0, 100), value: String(style.id) }));
+    await interaction.respond(choices);
   }
 };
 

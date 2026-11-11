@@ -5,6 +5,7 @@ import { handleVoiceStateUpdate } from "./handlers/onVoiceStateUpdate";
 import { handleMessageCreate } from "./handlers/onMessageCreate";
 import { logger } from "./lib/logger";
 import { startYtDlpUpdater } from './lib/yt-dlp-updater';
+import { getVoicevoxSpeakerStyles } from './lib/voicevox-client';
 import createCmdMap from "./lib/create-cmd-map";
 import DisbotClient from "./core/disbot-client";
 
@@ -21,6 +22,9 @@ const cmdMap = createCmdMap(); // Create the command map from the cmds directory
 client.once(Events.ClientReady, readyClient => {
   logger.log(generateDependencyReport());
   startYtDlpUpdater();
+  void getVoicevoxSpeakerStyles()
+    .then(styles => logger.log(`[Yomiage] Cached ${styles.length} VOICEVOX styles.`))
+    .catch(error => logger.warn('[Yomiage] Could not cache VOICEVOX styles at startup:', error));
   // generate an invite link for the bot
   const inviteLink = readyClient.generateInvite({
     scopes: [
@@ -74,6 +78,17 @@ client.on(Events.MessageCreate, async message => {
 
 // Listen for interactions e.g. slash commands
 client.on(Events.InteractionCreate, async interaction => {
+	if (interaction.isAutocomplete()) {
+    const command = cmdMap.get(interaction.commandName);
+    if (!command?.autocomplete) return;
+    try {
+      await command.autocomplete(interaction);
+    } catch (error) {
+      logger.error(`Error completing command ${interaction.commandName}:`, error);
+      await interaction.respond([]).catch(responseError => logger.error('Failed to send empty autocomplete response:', responseError));
+    }
+    return;
+  }
 	if (!interaction.isChatInputCommand()) return;
 
   const command = cmdMap.get(interaction.commandName);
