@@ -2,12 +2,17 @@ import { Message } from 'discord.js';
 import { generateLLMResponse } from '../lib/llm-client';
 import { logger } from '../lib/logger';
 import { formatMessagesForLLM } from '../lib/llm-formatter';
+import { ConfigRepository } from '../repositories/config-repository';
+import { handleYomiageMessage } from './yomiage';
 
 const MAX_MESSAGE_LENGTH = 200; // 分割送信する際の1メッセージあたりの最大文字数
+const repo = new ConfigRepository();
 
 export async function handleMessageCreate(message: Message) {
   // Bot自身のメッセージや他のBotのメッセージは無視
   if (message.author.bot) return;
+
+  await handleYomiageMessage(message, repo);
 
   const client = message.client;
   if (!client.user) return;

@@ -1,4 +1,8 @@
 services:
+  voicevox:
+    image: voicevox/voicevox_engine:cpu-latest
+    restart: unless-stopped
+
   adnk-bot:
     container_name: adnk-bot
     build:
@@ -10,7 +14,10 @@ services:
       - .env
     environment:
       - TZ=Asia/Tokyo
+      - VOICEVOX_BASE_URL=http://voicevox:50021
     restart: unless-stopped
+    depends_on:
+      - voicevox
     
     volumes:
       - ./data:/app/data

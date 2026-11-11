@@ -4,6 +4,8 @@ import { getVideoInfo } from '../lib/yt-dlp';
 import { joinVoiceChannel, getVoiceConnection } from '@discordjs/voice';
 import { isReadyForChannel, monitorVoiceConnection } from '../lib/voice-connection';
 import { isYtDlpUpdateInProgress } from '../lib/yt-dlp-updater';
+import { YomiageManager } from '../lib/yomiage-player';
+import { ConfigRepository } from '../repositories/config-repository';
 
 function isInQueueVoiceChannel(interaction: ChatInputCommandInteraction, guildId: string): boolean {
   const queue = MusicManager.getQueue(guildId);
@@ -22,8 +24,12 @@ async function rejectWhileYtDlpUpdating(interaction: ChatInputCommandInteraction
   return true;
 }
 
-export async function handlePlay(interaction: ChatInputCommandInteraction, guildId: string) {
+export async function handlePlay(interaction: ChatInputCommandInteraction, guildId: string, repo: ConfigRepository) {
   if (await rejectWhileYtDlpUpdating(interaction)) return;
+  if (YomiageManager.hasActive(guildId)) {
+    await interaction.reply({ content: '❌ 読み上げ中は音楽を再生できません。', flags: [MessageFlags.Ephemeral] });
+    return;
+  }
 
   const url = interaction.options.getString('url', true);
   const member = interaction.member as GuildMember;
@@ -31,6 +37,11 @@ export async function handlePlay(interaction: ChatInputCommandInteraction, guild
 
   if (!voiceChannel) {
     await interaction.reply({ content: '❌ 音楽を再生するには、先にボイスチャンネルに入室してください。', flags: [MessageFlags.Ephemeral] });
+    return;
+  }
+  const configuredVoiceChannelId = repo.getConfig(guildId)?.vc_id;
+  if (!configuredVoiceChannelId || voiceChannel.id !== configuredVoiceChannelId) {
+    await interaction.reply({ content: '❌ `/adnk set-vc` で登録されたボイスチャンネル内から実行してください。', flags: [MessageFlags.Ephemeral] });
     return;
   }
 

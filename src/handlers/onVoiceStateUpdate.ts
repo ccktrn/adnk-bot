@@ -4,6 +4,7 @@ import { ConfigRepository } from '../repositories/config-repository';
 import { logger } from '../lib/logger';
 import { isReadyForChannel, monitorVoiceConnection } from '../lib/voice-connection';
 import { MusicManager } from '../lib/music-player';
+import { YomiageManager } from '../lib/yomiage-player';
 
 const DELAY_SOUNDBOARD = 500; // Delay in milliseconds before sending the soundboard sound after joining the VC
 
@@ -93,6 +94,8 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
           if (stoppedMusic) {
             logger.log(`[Music] Everyone left ${channel.name}. Cleared the playback queue.`);
           }
+          YomiageManager.stopForVoiceChannel(guild.id, oldState.channelId);
+          repo.disableYomiageForVoiceChannel(guild.id, oldState.channelId);
 
           const connection = getVoiceConnection(guild.id);
           if (connection?.joinConfig.channelId === oldState.channelId) {

@@ -3,6 +3,7 @@ import { SlashCmd } from '../type';
 import { ConfigRepository } from '../repositories/config-repository';
 import { handleLoop, handlePlay, handleSkip, handleStop, handleQueue } from '../handlers/music';
 import { handleSetSoundboard, handleUnsetSoundboard, handleSetVc, handleUnsetVc } from '../handlers/adnkConfig';
+import { handleYomiage } from '../handlers/yomiage';
 
 const repo = new ConfigRepository();
 
@@ -47,6 +48,10 @@ const adnkCmd: SlashCmd = {
     .addSubcommand(sub => sub
       .setName('loop')
       .setDescription('現在のキュー（再生中を含む）のループを切り替えます')
+    )
+    .addSubcommand(sub => sub
+      .setName('yomiage')
+      .setDescription('このチャンネルの読み上げを有効・無効にします')
     ) as unknown as any,
 
   execute: async (interaction) => {
@@ -74,7 +79,7 @@ const adnkCmd: SlashCmd = {
         await handleUnsetVc(interaction, guildId, repo);
         break;
       case 'play':
-        await handlePlay(interaction, guildId);
+        await handlePlay(interaction, guildId, repo);
         break;
       case 'skip':
         await handleSkip(interaction, guildId);
@@ -87,6 +92,9 @@ const adnkCmd: SlashCmd = {
         break;
       case 'loop':
         await handleLoop(interaction, guildId);
+        break;
+      case 'yomiage':
+        await handleYomiage(interaction, guildId, repo);
         break;
       default:
         await interaction.reply({ content: '不明なサブコマンドです。', flags: [MessageFlags.Ephemeral] });
