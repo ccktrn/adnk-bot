@@ -4,6 +4,8 @@ import { logger } from './logger';
 import { GuildTextBasedChannel, VoiceBasedChannel } from 'discord.js';
 import { getAudioStream } from './yt-dlp';
 
+const VOICE_READY_TIMEOUT_MS = 30_000;
+
 export interface Song {
   title: string;
   url: string;
@@ -61,6 +63,16 @@ export class GuildQueue {
     }
   }
 
+  private clearQueueAfterVoiceConnectionFailure() {
+    if (this.isPlaying || this.songs.length === 0) return;
+
+    logger.warn('[Music] Voice connection did not become ready; clearing the queued songs.');
+    this.stop();
+    if (this.textChannel) {
+      this.textChannel.send('⚠️ ボイスチャンネルへ接続できなかったため、再生キューをクリアしました。');
+    }
+  }
+
   public async playNext() {
     if (this.songs.length === 0) {
       this.isPlaying = false;
@@ -84,6 +96,12 @@ export class GuildQueue {
             void this.playNext();
           }
         });
+        setTimeout(() => {
+          if (this.connection === (activeConnection ?? null)
+            && (!activeConnection || activeConnection.state.status !== VoiceConnectionStatus.Ready)) {
+            this.clearQueueAfterVoiceConnectionFailure();
+          }
+        }, VOICE_READY_TIMEOUT_MS);
         return;
       }
       this.connection = activeConnection;
@@ -154,6 +172,10 @@ export class GuildQueue {
   public isLoopEnabled() {
     return this.loopEnabled;
   }
+
+  public hasActivePlayback(): boolean {
+    return this.isPlaying || this.currentStreamProcess !== null || this.songs.length > 0;
+  }
 }
 
 export class MusicManager {
@@ -172,5 +194,9 @@ export class MusicManager {
       queue.stop();
       this.queues.delete(guildId);
     }
+  }
+
+  public static hasActivePlayback(): boolean {
+    return Array.from(this.queues.values()).some(queue => queue.hasActivePlayback());
   }
 }

@@ -4,6 +4,7 @@ import { generateDependencyReport } from '@discordjs/voice';
 import { handleVoiceStateUpdate } from "./handlers/onVoiceStateUpdate";
 import { handleMessageCreate } from "./handlers/onMessageCreate";
 import { logger } from "./lib/logger";
+import { startYtDlpUpdater } from './lib/yt-dlp-updater';
 import createCmdMap from "./lib/create-cmd-map";
 import DisbotClient from "./core/disbot-client";
 
@@ -19,6 +20,7 @@ const cmdMap = createCmdMap(); // Create the command map from the cmds directory
 // clientReady
 client.once(Events.ClientReady, readyClient => {
   logger.log(generateDependencyReport());
+  startYtDlpUpdater();
   // generate an invite link for the bot
   const inviteLink = readyClient.generateInvite({
     scopes: [

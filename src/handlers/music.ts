@@ -3,6 +3,7 @@ import { MusicManager } from '../lib/music-player';
 import { getVideoInfo } from '../lib/yt-dlp';
 import { joinVoiceChannel, getVoiceConnection } from '@discordjs/voice';
 import { isReadyForChannel, monitorVoiceConnection } from '../lib/voice-connection';
+import { isYtDlpUpdateInProgress } from '../lib/yt-dlp-updater';
 
 function isInQueueVoiceChannel(interaction: ChatInputCommandInteraction, guildId: string): boolean {
   const queue = MusicManager.getQueue(guildId);
@@ -11,7 +12,19 @@ function isInQueueVoiceChannel(interaction: ChatInputCommandInteraction, guildId
   return Boolean(queueChannelId && member.voice.channelId === queueChannelId);
 }
 
+async function rejectWhileYtDlpUpdating(interaction: ChatInputCommandInteraction): Promise<boolean> {
+  if (!isYtDlpUpdateInProgress()) return false;
+
+  await interaction.reply({
+    content: '⏳ yt-dlp を更新中です。音楽コマンドはまもなく利用できます。',
+    flags: [MessageFlags.Ephemeral],
+  });
+  return true;
+}
+
 export async function handlePlay(interaction: ChatInputCommandInteraction, guildId: string) {
+  if (await rejectWhileYtDlpUpdating(interaction)) return;
+
   const url = interaction.options.getString('url', true);
   const member = interaction.member as GuildMember;
   const voiceChannel = member.voice?.channel;
@@ -34,6 +47,11 @@ export async function handlePlay(interaction: ChatInputCommandInteraction, guild
     }
 
     const videoInfo = await getVideoInfo(url);
+    if (isYtDlpUpdateInProgress()) {
+      await interaction.editReply({ content: '⏳ yt-dlp の更新が始まったため、再生要求を受け付けませんでした。完了後にもう一度実行してください。' });
+      return;
+    }
+
     const song = {
       title: videoInfo.title,
       url: videoInfo.url,
@@ -72,6 +90,8 @@ export async function handlePlay(interaction: ChatInputCommandInteraction, guild
 }
 
 export async function handleSkip(interaction: ChatInputCommandInteraction, guildId: string) {
+  if (await rejectWhileYtDlpUpdating(interaction)) return;
+
   const queue = MusicManager.getQueue(guildId);
   if (!queue.isPlaying) {
     await interaction.reply({ content: '❌ 現在再生中の曲はありません。', flags: [MessageFlags.Ephemeral] });
@@ -86,6 +106,8 @@ export async function handleSkip(interaction: ChatInputCommandInteraction, guild
 }
 
 export async function handleStop(interaction: ChatInputCommandInteraction, guildId: string) {
+  if (await rejectWhileYtDlpUpdating(interaction)) return;
+
   const queue = MusicManager.getQueue(guildId);
   if (queue.songs.length > 0 && !isInQueueVoiceChannel(interaction, guildId)) {
     await interaction.reply({ content: '❌ Bot と同じボイスチャンネルから操作してください。', flags: [MessageFlags.Ephemeral] });
@@ -96,6 +118,8 @@ export async function handleStop(interaction: ChatInputCommandInteraction, guild
 }
 
 export async function handleLoop(interaction: ChatInputCommandInteraction, guildId: string) {
+  if (await rejectWhileYtDlpUpdating(interaction)) return;
+
   const queue = MusicManager.getQueue(guildId);
   if (queue.songs.length > 0 && !isInQueueVoiceChannel(interaction, guildId)) {
     await interaction.reply({ content: '❌ Bot と同じボイスチャンネルから操作してください。', flags: [MessageFlags.Ephemeral] });
@@ -116,6 +140,8 @@ export async function handleLoop(interaction: ChatInputCommandInteraction, guild
 }
 
 export async function handleQueue(interaction: ChatInputCommandInteraction, guildId: string) {
+  if (await rejectWhileYtDlpUpdating(interaction)) return;
+
   const queue = MusicManager.getQueue(guildId);
   
   if (queue.songs.length === 0) {
