@@ -196,6 +196,19 @@ export class MusicManager {
     }
   }
 
+  public static stopQueueInVoiceChannel(guildId: string, channelId: string): boolean {
+    const queue = this.queues.get(guildId);
+    const activeConnection = getVoiceConnection(guildId);
+    const queueChannelId = activeConnection?.joinConfig.channelId
+      ?? queue?.connection?.joinConfig.channelId
+      ?? queue?.voiceChannel?.id;
+    if (!queue || queueChannelId !== channelId) return false;
+
+    queue.stop();
+    this.queues.delete(guildId);
+    return true;
+  }
+
   public static hasActivePlayback(): boolean {
     return Array.from(this.queues.values()).some(queue => queue.hasActivePlayback());
   }

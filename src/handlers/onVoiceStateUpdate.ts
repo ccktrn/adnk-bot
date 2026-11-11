@@ -3,6 +3,7 @@ import { joinVoiceChannel, VoiceConnection, VoiceConnectionStatus, getVoiceConne
 import { ConfigRepository } from '../repositories/config-repository';
 import { logger } from '../lib/logger';
 import { isReadyForChannel, monitorVoiceConnection } from '../lib/voice-connection';
+import { MusicManager } from '../lib/music-player';
 
 const DELAY_SOUNDBOARD = 500; // Delay in milliseconds before sending the soundboard sound after joining the VC
 
@@ -52,11 +53,11 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
   if (oldState.channelId === newState.channelId) return;
   const guild = newState.guild;
   const config = repo.getConfig(guild.id);
-  if (!config || !config.vc_id) return;
 
   // 他のBotのイベントは無視する。ただし自身の切断は、接続状態の調査に必要なので記録する。
   if (newState.member?.user.bot) {
-    if (newState.member.id === newState.client.user.id
+    if (config?.vc_id
+      && newState.member.id === newState.client.user.id
       && oldState.channelId === config.vc_id
       && newState.channelId !== config.vc_id) {
       logger.warn(
@@ -81,15 +82,20 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
   }
 
   // ===== LEAVE LOGIC (退出時の処理) =====
-  if (oldState.channelId === config.vc_id) {
+  if (oldState.channelId) {
     try {
       const channel = await guild.channels.fetch(oldState.channelId).catch(() => null);
       if (channel && channel.isVoiceBased()) {
         // Bot以外のメンバーが残っているか確認
         const humanMembers = channel.members.filter(m => !m.user.bot);
         if (humanMembers.size === 0) {
+          const stoppedMusic = MusicManager.stopQueueInVoiceChannel(guild.id, oldState.channelId);
+          if (stoppedMusic) {
+            logger.log(`[Music] Everyone left ${channel.name}. Cleared the playback queue.`);
+          }
+
           const connection = getVoiceConnection(guild.id);
-          if (connection) {
+          if (connection?.joinConfig.channelId === oldState.channelId) {
             logger.log(`[Voice] Everyone left ${channel.name}. Destroying connection.`);
             connection.destroy();
           }
@@ -99,6 +105,8 @@ export async function handleVoiceStateUpdate(oldState: VoiceState, newState: Voi
       logger.error(`[Voice] Error during leave logic:`, error);
     }
   }
+
+  if (!config?.vc_id) return;
 
   // ===== JOIN LOGIC (入室時の処理) =====
   if (newState.channelId === config.vc_id) {
