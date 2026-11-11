@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { SlashCmd } from '../type';
 import { ConfigRepository } from '../repositories/config-repository';
-import { handlePlay, handleSkip, handleStop, handleQueue } from '../handlers/music';
+import { handleLoop, handlePlay, handleSkip, handleStop, handleQueue } from '../handlers/music';
 import { handleSetSoundboard, handleUnsetSoundboard, handleSetVc, handleUnsetVc } from '../handlers/adnkConfig';
 
 const repo = new ConfigRepository();
@@ -43,6 +43,10 @@ const adnkCmd: SlashCmd = {
     .addSubcommand(sub => sub
       .setName('queue')
       .setDescription('現在の再生キュー（順番待ちリスト）を表示します')
+    )
+    .addSubcommand(sub => sub
+      .setName('loop')
+      .setDescription('現在のキュー（再生中を含む）のループを切り替えます')
     ) as unknown as any,
 
   execute: async (interaction) => {
@@ -80,6 +84,9 @@ const adnkCmd: SlashCmd = {
         break;
       case 'queue':
         await handleQueue(interaction, guildId);
+        break;
+      case 'loop':
+        await handleLoop(interaction, guildId);
         break;
       default:
         await interaction.reply({ content: '不明なサブコマンドです。', flags: [MessageFlags.Ephemeral] });

@@ -4,6 +4,13 @@ import { getVideoInfo } from '../lib/yt-dlp';
 import { joinVoiceChannel, getVoiceConnection } from '@discordjs/voice';
 import { isReadyForChannel, monitorVoiceConnection } from '../lib/voice-connection';
 
+function isInQueueVoiceChannel(interaction: ChatInputCommandInteraction, guildId: string): boolean {
+  const queue = MusicManager.getQueue(guildId);
+  const member = interaction.member as GuildMember;
+  const queueChannelId = queue.voiceChannel?.id ?? queue.connection?.joinConfig.channelId;
+  return Boolean(queueChannelId && member.voice.channelId === queueChannelId);
+}
+
 export async function handlePlay(interaction: ChatInputCommandInteraction, guildId: string) {
   const url = interaction.options.getString('url', true);
   const member = interaction.member as GuildMember;
@@ -17,6 +24,15 @@ export async function handlePlay(interaction: ChatInputCommandInteraction, guild
   await interaction.deferReply();
 
   try {
+    const queue = MusicManager.getQueue(guildId);
+    const existingConnection = getVoiceConnection(guildId);
+    if (queue.songs.length > 0
+      && existingConnection
+      && existingConnection.joinConfig.channelId !== voiceChannel.id) {
+      await interaction.editReply({ content: '❌ 再生中のキューがあります。Bot と同じボイスチャンネルから操作してください。' });
+      return;
+    }
+
     const videoInfo = await getVideoInfo(url);
     const song = {
       title: videoInfo.title,
@@ -40,8 +56,8 @@ export async function handlePlay(interaction: ChatInputCommandInteraction, guild
       monitorVoiceConnection(connection);
     }
 
-    const queue = MusicManager.getQueue(guildId);
     queue.textChannel = interaction.channel as GuildTextBasedChannel;
+    queue.voiceChannel = voiceChannel;
     queue.connection = connection;
     queue.songs.push(song);
 
@@ -61,14 +77,42 @@ export async function handleSkip(interaction: ChatInputCommandInteraction, guild
     await interaction.reply({ content: '❌ 現在再生中の曲はありません。', flags: [MessageFlags.Ephemeral] });
     return;
   }
+  if (!isInQueueVoiceChannel(interaction, guildId)) {
+    await interaction.reply({ content: '❌ Bot と同じボイスチャンネルから操作してください。', flags: [MessageFlags.Ephemeral] });
+    return;
+  }
   queue.skip();
   await interaction.reply({ content: '⏭️ 曲をスキップしました。' });
 }
 
 export async function handleStop(interaction: ChatInputCommandInteraction, guildId: string) {
   const queue = MusicManager.getQueue(guildId);
+  if (queue.songs.length > 0 && !isInQueueVoiceChannel(interaction, guildId)) {
+    await interaction.reply({ content: '❌ Bot と同じボイスチャンネルから操作してください。', flags: [MessageFlags.Ephemeral] });
+    return;
+  }
   queue.stop();
   await interaction.reply({ content: '⏹️ 再生を停止し、キューをクリアしました。' });
+}
+
+export async function handleLoop(interaction: ChatInputCommandInteraction, guildId: string) {
+  const queue = MusicManager.getQueue(guildId);
+  if (queue.songs.length > 0 && !isInQueueVoiceChannel(interaction, guildId)) {
+    await interaction.reply({ content: '❌ Bot と同じボイスチャンネルから操作してください。', flags: [MessageFlags.Ephemeral] });
+    return;
+  }
+  const result = queue.toggleLoop();
+
+  if (result === 'empty') {
+    await interaction.reply({ content: '❌ ループするキューがありません。', flags: [MessageFlags.Ephemeral] });
+    return;
+  }
+
+  await interaction.reply({
+    content: result === 'enabled'
+      ? '🔁 現在のキュー（再生中を含む）のループを有効にしました。もう一度 `/adnk loop` を実行すると解除します。'
+      : '🔁 キューのループを解除しました。'
+  });
 }
 
 export async function handleQueue(interaction: ChatInputCommandInteraction, guildId: string) {
@@ -80,7 +124,8 @@ export async function handleQueue(interaction: ChatInputCommandInteraction, guil
   }
 
   const current = queue.songs[0];
-  let msg = `▶️ **再生中:**\n${current.title} (リクエスト: ${current.requestedBy})\n\n`;
+  const loopStatus = queue.isLoopEnabled() ? ' 🔁 ループ中' : '';
+  let msg = `▶️ **再生中:**${loopStatus}\n${current.title} (リクエスト: ${current.requestedBy})\n\n`;
 
   if (queue.songs.length > 1) {
     msg += `**順番待ち (${queue.songs.length - 1}曲):**\n`;

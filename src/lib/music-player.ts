@@ -1,3 +1,4 @@
+import { ChildProcessWithoutNullStreams } from 'child_process';
 import { AudioPlayer, AudioPlayerStatus, createAudioPlayer, createAudioResource, getVoiceConnection, VoiceConnection, VoiceConnectionStatus } from '@discordjs/voice';
 import { logger } from './logger';
 import { GuildTextBasedChannel, VoiceBasedChannel } from 'discord.js';
@@ -17,6 +18,10 @@ export class GuildQueue {
   public player: AudioPlayer;
   public songs: Song[] = [];
   public isPlaying = false;
+  private loopEnabled = false;
+  private loopSongs: Song[] = [];
+  private currentStreamProcess: ChildProcessWithoutNullStreams | null = null;
+  private suppressNextIdle = false;
   private guildId: string;
 
   constructor(guildId: string) {
@@ -24,26 +29,36 @@ export class GuildQueue {
     this.player = createAudioPlayer();
     
     this.player.on(AudioPlayerStatus.Idle, () => {
-      this.songs.shift(); // 終わった曲を削除
-      if (this.songs.length > 0) {
-        this.playNext();
-      } else {
-        this.isPlaying = false;
-        if (this.textChannel) {
-          this.textChannel.send('🎶 キューの再生がすべて終了しました。');
-        }
+      if (this.suppressNextIdle) {
+        this.suppressNextIdle = false;
+        return;
       }
+      this.finishCurrentSong();
     });
 
     this.player.on('error', error => {
       logger.error(`[Music] AudioPlayer error:`, error);
-      this.songs.shift();
-      if (this.songs.length > 0) {
-        this.playNext();
-      } else {
-        this.isPlaying = false;
-      }
+      // @discordjs/voice はエラー後に Idle へ遷移するため、曲送りは Idle 側に集約する。
+      this.stopCurrentStream();
     });
+  }
+
+  private finishCurrentSong() {
+    this.songs.shift();
+
+    if (this.songs.length === 0 && this.loopEnabled) {
+      this.songs = this.loopSongs.map(song => ({ ...song }));
+    }
+
+    if (this.songs.length > 0) {
+      void this.playNext();
+      return;
+    }
+
+    this.isPlaying = false;
+    if (this.textChannel) {
+      this.textChannel.send('🎶 キューの再生がすべて終了しました。');
+    }
   }
 
   public async playNext() {
@@ -74,8 +89,15 @@ export class GuildQueue {
       this.connection = activeConnection;
       this.connection.subscribe(this.player);
 
-      const stream = getAudioStream(currentSong.url);
-      const resource = createAudioResource(stream);
+      const streamProcess = getAudioStream(currentSong.url);
+      this.currentStreamProcess = streamProcess;
+      streamProcess.once('close', () => {
+        if (this.currentStreamProcess === streamProcess) {
+          this.currentStreamProcess = null;
+        }
+      });
+
+      const resource = createAudioResource(streamProcess.stdout);
       this.player.play(resource);
 
       if (this.textChannel) {
@@ -93,12 +115,44 @@ export class GuildQueue {
 
   public stop() {
     this.songs = [];
-    this.player.stop();
+    this.loopEnabled = false;
+    this.loopSongs = [];
+    this.stopCurrentStream();
+    this.suppressNextIdle = true;
+    if (!this.player.stop()) {
+      this.suppressNextIdle = false;
+    }
     this.isPlaying = false;
   }
 
   public skip() {
+    this.stopCurrentStream();
     this.player.stop(); // StopするとIdleイベントが発火し、自動的に次の曲が再生される
+  }
+
+  private stopCurrentStream() {
+    if (this.currentStreamProcess && !this.currentStreamProcess.killed) {
+      this.currentStreamProcess.kill();
+    }
+    this.currentStreamProcess = null;
+  }
+
+  public toggleLoop(): 'enabled' | 'disabled' | 'empty' {
+    if (this.loopEnabled) {
+      this.loopEnabled = false;
+      this.loopSongs = [];
+      return 'disabled';
+    }
+
+    if (this.songs.length === 0) return 'empty';
+
+    this.loopSongs = this.songs.map(song => ({ ...song }));
+    this.loopEnabled = true;
+    return 'enabled';
+  }
+
+  public isLoopEnabled() {
+    return this.loopEnabled;
   }
 }
 
