@@ -54,20 +54,51 @@ export async function hasVoicevoxSpeaker(speakerId: number): Promise<boolean> {
   return styles.some(style => style.id === speakerId);
 }
 
-export async function synthesizeVoicevox(text: string, speakerId: number, speedScale: number): Promise<Buffer> {
-  const queryResponse = await fetch(`${voicevoxBaseUrl}/audio_query?text=${encodeURIComponent(text)}&speaker=${speakerId}`, {
-    method: 'POST',
-    signal: AbortSignal.timeout(SYNTHESIS_TIMEOUT_MS),
-  });
-  if (!queryResponse.ok) throw new Error(`VOICEVOX audio_query failed: ${queryResponse.status}`);
-  const query = await queryResponse.json() as Record<string, unknown>;
+function createRequestController(parentSignal?: AbortSignal) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (parentSignal?.aborted) {
+    controller.abort();
+  } else {
+    parentSignal?.addEventListener('abort', abort, { once: true });
+  }
+
+  const timeout = setTimeout(() => controller.abort(), SYNTHESIS_TIMEOUT_MS);
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      clearTimeout(timeout);
+      parentSignal?.removeEventListener('abort', abort);
+    },
+  };
+}
+
+export async function synthesizeVoicevox(text: string, speakerId: number, speedScale: number, parentSignal?: AbortSignal): Promise<Buffer> {
+  const queryRequest = createRequestController(parentSignal);
+  let query: Record<string, unknown>;
+  try {
+    const queryResponse = await fetch(`${voicevoxBaseUrl}/audio_query?text=${encodeURIComponent(text)}&speaker=${speakerId}`, {
+      method: 'POST',
+      signal: queryRequest.signal,
+    });
+    if (!queryResponse.ok) throw new Error(`VOICEVOX audio_query failed: ${queryResponse.status}`);
+    query = await queryResponse.json() as Record<string, unknown>;
+  } finally {
+    queryRequest.dispose();
+  }
+
   query.speedScale = speedScale;
-  const synthesisResponse = await fetch(`${voicevoxBaseUrl}/synthesis?speaker=${speakerId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(query),
-    signal: AbortSignal.timeout(SYNTHESIS_TIMEOUT_MS),
-  });
-  if (!synthesisResponse.ok) throw new Error(`VOICEVOX synthesis failed: ${synthesisResponse.status}`);
-  return Buffer.from(await synthesisResponse.arrayBuffer());
+  const synthesisRequest = createRequestController(parentSignal);
+  try {
+    const synthesisResponse = await fetch(`${voicevoxBaseUrl}/synthesis?speaker=${speakerId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(query),
+      signal: synthesisRequest.signal,
+    });
+    if (!synthesisResponse.ok) throw new Error(`VOICEVOX synthesis failed: ${synthesisResponse.status}`);
+    return Buffer.from(await synthesisResponse.arrayBuffer());
+  } finally {
+    synthesisRequest.dispose();
+  }
 }

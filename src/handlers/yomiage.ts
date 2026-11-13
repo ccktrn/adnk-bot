@@ -8,10 +8,15 @@ import { hasVoicevoxSpeaker, waitForVoicevox } from '../lib/voicevox-client';
 import { logger } from '../lib/logger';
 
 const DEFAULT_SPEAKER_ID = Number(process.env.YOMIAGE_SPEAKER_ID || '1');
+const MAX_SPEECH_TEXT_LENGTH = 100;
+const TRUNCATION_SUFFIX = '、以下略';
 
 function normalize(text: string) {
   const normalized = text.replace(/https?:\/\/\S+/g, 'URL省略').replace(/```[\s\S]*?```/g, 'コード省略').replace(/<a?:\w+:\d+>/g, '').trim();
-  return normalized.length > 200 ? `${normalized.slice(0, 200)}、以下省略` : normalized;
+  const characters = Array.from(normalized);
+  return characters.length > MAX_SPEECH_TEXT_LENGTH
+    ? `${characters.slice(0, MAX_SPEECH_TEXT_LENGTH).join('')}${TRUNCATION_SUFFIX}`
+    : normalized;
 }
 
 export async function handleYomiageStart(interaction: ChatInputCommandInteraction, guildId: string, repo: ConfigRepository) {
