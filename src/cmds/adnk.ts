@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { SlashCmd } from '../type';
 import { ConfigRepository } from '../repositories/config-repository';
-import { handleLoop, handlePlay, handleSkip, handleStop, handleQueue } from '../handlers/music';
+import { handleLoop, handlePlay, handleSkip, handleStop, handleQueue, handleVolume } from '../handlers/music';
 import { handleSetSoundboard, handleUnsetSoundboard, handleSetVc, handleUnsetVc } from '../handlers/adnkConfig';
 import { handleYomiageSpeed, handleYomiageStart, handleYomiageStop, handleYomiageVoice } from '../handlers/yomiage';
 import { getVoicevoxSpeakerStyles } from '../lib/voicevox-client';
@@ -44,6 +44,11 @@ const adnkCmd: SlashCmd = {
         .setName('play')
         .setDescription('YouTubeなどのURLから音楽を再生します')
         .addStringOption(opt => opt.setName('url').setDescription('再生する動画・音楽のURL').setRequired(true))
+      )
+      .addSubcommand(sub => sub
+        .setName('volume')
+        .setDescription('音楽の音量を設定します（既定: レベル5）')
+        .addIntegerOption(opt => opt.setName('level').setDescription('音量レベル（0〜10、5は10%）').setRequired(true).setMinValue(0).setMaxValue(10))
       )
       .addSubcommand(sub => sub.setName('skip').setDescription('現在再生中の曲をスキップします'))
       .addSubcommand(sub => sub.setName('stop').setDescription('再生を停止し、キューをクリアします'))
@@ -89,6 +94,8 @@ const adnkCmd: SlashCmd = {
         await handleUnsetVc(interaction, guildId, repo);
     } else if (group === 'music' && subCmd === 'play') {
         await handlePlay(interaction, guildId, repo);
+    } else if (group === 'music' && subCmd === 'volume') {
+        await handleVolume(interaction, guildId, repo);
     } else if (group === 'music' && subCmd === 'skip') {
         await handleSkip(interaction, guildId);
     } else if (group === 'music' && subCmd === 'stop') {

@@ -1,5 +1,5 @@
 import { ChatInputCommandInteraction, GuildMember, MessageFlags, GuildTextBasedChannel } from 'discord.js';
-import { MusicManager } from '../lib/music-player';
+import { getMusicVolumeMultiplier, MusicManager } from '../lib/music-player';
 import { getVideoInfo } from '../lib/yt-dlp';
 import { joinVoiceChannel, getVoiceConnection } from '@discordjs/voice';
 import { isReadyForChannel, monitorVoiceConnection } from '../lib/voice-connection';
@@ -49,6 +49,7 @@ export async function handlePlay(interaction: ChatInputCommandInteraction, guild
 
   try {
     const queue = MusicManager.getQueue(guildId);
+    queue.setVolumeLevel(repo.getMusicVolumeLevel(guildId));
     const existingConnection = getVoiceConnection(guildId);
     if (queue.songs.length > 0
       && existingConnection
@@ -98,6 +99,15 @@ export async function handlePlay(interaction: ChatInputCommandInteraction, guild
   } catch (error) {
     await interaction.editReply({ content: '❌ 動画情報の取得または再生に失敗しました。URLが正しいか確認してください。' });
   }
+}
+
+export async function handleVolume(interaction: ChatInputCommandInteraction, guildId: string, repo: ConfigRepository) {
+  const level = interaction.options.getInteger('level', true);
+  const volumePercent = getMusicVolumeMultiplier(level) * 100;
+
+  repo.setMusicVolumeLevel(guildId, level);
+  MusicManager.getQueue(guildId).setVolumeLevel(level);
+  await interaction.reply({ content: `🔊 音楽の音量をレベル ${level}（${volumePercent.toFixed(1)}%）に設定しました。` });
 }
 
 export async function handleSkip(interaction: ChatInputCommandInteraction, guildId: string) {

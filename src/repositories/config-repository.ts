@@ -18,7 +18,8 @@ export class ConfigRepository {
                 yomiage_text_channel_id TEXT,
                 yomiage_voice_channel_id TEXT,
                 yomiage_speaker_id INTEGER,
-                yomiage_speed_scale REAL
+                yomiage_speed_scale REAL,
+                music_volume_level INTEGER NOT NULL DEFAULT 5
             )
         `);
         this.ensureColumn('yomiage_enabled', 'INTEGER NOT NULL DEFAULT 0');
@@ -26,6 +27,10 @@ export class ConfigRepository {
         this.ensureColumn('yomiage_voice_channel_id', 'TEXT');
         this.ensureColumn('yomiage_speaker_id', 'INTEGER');
         this.ensureColumn('yomiage_speed_scale', 'REAL');
+        const addedMusicVolumeLevel = this.ensureColumn('music_volume_level', 'INTEGER NOT NULL DEFAULT 5');
+        if (addedMusicVolumeLevel) {
+            this.migrateMusicVolumeToLevel();
+        }
 
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS yomiage_user_settings (
@@ -39,11 +44,35 @@ export class ConfigRepository {
         this.ensureUserColumn('speed_scale', 'REAL');
     }
 
-    private ensureColumn(name: string, definition: string) {
+    private ensureColumn(name: string, definition: string): boolean {
         const columns = this.db.all('PRAGMA table_info(configs)') as Array<{ name: string }>;
-        if (!columns.some(column => column.name === name)) {
-            this.db.exec(`ALTER TABLE configs ADD COLUMN ${name} ${definition}`);
-        }
+        if (columns.some(column => column.name === name)) return false;
+
+        this.db.exec(`ALTER TABLE configs ADD COLUMN ${name} ${definition}`);
+        return true;
+    }
+
+    private migrateMusicVolumeToLevel() {
+        const columns = this.db.all('PRAGMA table_info(configs)') as Array<{ name: string }>;
+        if (!columns.some(column => column.name === 'music_volume')) return;
+
+        this.db.run(`
+            UPDATE configs
+            SET music_volume_level = CASE
+                WHEN music_volume <= 0 THEN 0
+                WHEN music_volume < 0.021 THEN 1
+                WHEN music_volume < 0.033 THEN 2
+                WHEN music_volume < 0.052 THEN 3
+                WHEN music_volume < 0.082 THEN 4
+                WHEN music_volume < 0.129 THEN 5
+                WHEN music_volume < 0.205 THEN 6
+                WHEN music_volume < 0.325 THEN 7
+                WHEN music_volume < 0.515 THEN 8
+                WHEN music_volume < 0.816 THEN 9
+                ELSE 10
+            END
+            WHERE music_volume IS NOT NULL
+        `);
     }
     private ensureUserColumn(name: string, definition: string) {
         const columns = this.db.all('PRAGMA table_info(yomiage_user_settings)') as Array<{ name: string }>;
@@ -66,6 +95,18 @@ export class ConfigRepository {
             INSERT INTO configs (guild_id, soundboard_id) VALUES (@guild_id, @soundboard_id)
             ON CONFLICT(guild_id) DO UPDATE SET soundboard_id = @soundboard_id
         `, { '@guild_id': guildId, '@soundboard_id': soundboardId });
+    }
+
+    public getMusicVolumeLevel(guildId: string): number {
+        const config = this.db.get('SELECT music_volume_level FROM configs WHERE guild_id = @guild_id', { '@guild_id': guildId }) as { music_volume_level: number | null } | undefined;
+        return config?.music_volume_level ?? 5;
+    }
+
+    public setMusicVolumeLevel(guildId: string, level: number) {
+        this.db.run(`
+            INSERT INTO configs (guild_id, music_volume_level) VALUES (@guild_id, @level)
+            ON CONFLICT(guild_id) DO UPDATE SET music_volume_level = @level
+        `, { '@guild_id': guildId, '@level': level });
     }
 
     public getYomiageConfig(guildId: string): { yomiage_enabled: number, yomiage_text_channel_id: string | null, yomiage_voice_channel_id: string | null, yomiage_speaker_id: number | null, yomiage_speed_scale: number | null } | undefined {

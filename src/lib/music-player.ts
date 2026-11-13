@@ -1,10 +1,15 @@
-import { ChildProcessWithoutNullStreams } from 'child_process';
-import { AudioPlayer, AudioPlayerStatus, createAudioPlayer, createAudioResource, getVoiceConnection, VoiceConnection, VoiceConnectionStatus } from '@discordjs/voice';
+import { AudioPlayer, AudioPlayerStatus, AudioResource, createAudioPlayer, createAudioResource, getVoiceConnection, StreamType, VoiceConnection, VoiceConnectionStatus } from '@discordjs/voice';
 import { logger } from './logger';
 import { GuildTextBasedChannel, VoiceBasedChannel } from 'discord.js';
-import { getAudioStream } from './yt-dlp';
+import { AudioStream, getAudioStream } from './yt-dlp';
 
 const VOICE_READY_TIMEOUT_MS = 30_000;
+const DEFAULT_MUSIC_VOLUME_LEVEL = 5;
+
+export function getMusicVolumeMultiplier(level: number): number {
+  if (level === 0) return 0;
+  return 10 ** ((level - 10) / 5);
+}
 
 export interface Song {
   title: string;
@@ -22,7 +27,9 @@ export class GuildQueue {
   public isPlaying = false;
   private loopEnabled = false;
   private loopSongs: Song[] = [];
-  private currentStreamProcess: ChildProcessWithoutNullStreams | null = null;
+  private currentAudioStream: AudioStream | null = null;
+  private currentResource: AudioResource | null = null;
+  private volume = getMusicVolumeMultiplier(DEFAULT_MUSIC_VOLUME_LEVEL);
   private suppressNextIdle = false;
   private guildId: string;
 
@@ -107,15 +114,20 @@ export class GuildQueue {
       this.connection = activeConnection;
       this.connection.subscribe(this.player);
 
-      const streamProcess = getAudioStream(currentSong.url);
-      this.currentStreamProcess = streamProcess;
-      streamProcess.once('close', () => {
-        if (this.currentStreamProcess === streamProcess) {
-          this.currentStreamProcess = null;
+      const audioStream = getAudioStream(currentSong.url);
+      this.currentAudioStream = audioStream;
+      audioStream.output.once('close', () => {
+        if (this.currentAudioStream === audioStream) {
+          this.currentAudioStream = null;
         }
       });
 
-      const resource = createAudioResource(streamProcess.stdout);
+      const resource = createAudioResource(audioStream.output, {
+        inputType: StreamType.Raw,
+        inlineVolume: true,
+      });
+      resource.volume?.setVolume(this.volume);
+      this.currentResource = resource;
       this.player.play(resource);
 
       if (this.textChannel) {
@@ -149,10 +161,16 @@ export class GuildQueue {
   }
 
   private stopCurrentStream() {
-    if (this.currentStreamProcess && !this.currentStreamProcess.killed) {
-      this.currentStreamProcess.kill();
+    if (this.currentAudioStream) {
+      this.currentAudioStream.stop();
     }
-    this.currentStreamProcess = null;
+    this.currentAudioStream = null;
+    this.currentResource = null;
+  }
+
+  public setVolumeLevel(level: number) {
+    this.volume = getMusicVolumeMultiplier(level);
+    this.currentResource?.volume?.setVolume(this.volume);
   }
 
   public toggleLoop(): 'enabled' | 'disabled' | 'empty' {
@@ -174,7 +192,7 @@ export class GuildQueue {
   }
 
   public hasActivePlayback(): boolean {
-    return this.isPlaying || this.currentStreamProcess !== null || this.songs.length > 0;
+    return this.isPlaying || this.currentAudioStream !== null || this.songs.length > 0;
   }
 }
 
